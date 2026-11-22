@@ -69,7 +69,7 @@ public class CutsceneController : MonoBehaviour
         if (hint != null)
         {
             hint.gameObject.SetActive(true);
-            hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nQ  —  Messages";
+            hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nE  —  Phone";
         }
     }
 

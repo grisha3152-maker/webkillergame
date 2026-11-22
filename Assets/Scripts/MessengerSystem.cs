@@ -4,6 +4,10 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
+/// <summary>
+/// Совместимость с RadialAimController.ChoiceIsOpen.
+/// Если в сцене есть Dialogue — только прокси ChoicePending, свой UI не строим.
+/// </summary>
 public class MessengerSystem : MonoBehaviour
 {
     [SerializeField] private TextAsset dialogues;
@@ -18,6 +22,7 @@ public class MessengerSystem : MonoBehaviour
     int token;
     bool waitingForChoice;
     bool panelOpen;
+    bool proxyOnly;
 
     RectTransform panel;
     Text body;
@@ -26,10 +31,28 @@ public class MessengerSystem : MonoBehaviour
     Text tab;
     AudioSource notify;
 
-    public bool ChoicePending => waitingForChoice && panelOpen && active >= 0;
+    public bool ChoicePending
+    {
+        get
+        {
+            if (proxyOnly)
+            {
+                var dialogue = FindAnyObjectByType<Dialogue>();
+                return dialogue != null && dialogue.ChoicePending;
+            }
+            return waitingForChoice && panelOpen && active >= 0;
+        }
+    }
 
     void Awake()
     {
+        // Dialogue добавляется раньше в bootstrap — тогда мы только прокси.
+        if (GetComponent<Dialogue>() != null || FindAnyObjectByType<Dialogue>() != null)
+        {
+            proxyOnly = true;
+            return;
+        }
+
         if (dialogues == null)
             dialogues = Resources.Load<TextAsset>("dialogues");
         if (dialogues != null)
@@ -49,18 +72,21 @@ public class MessengerSystem : MonoBehaviour
 
     void OnEnable()
     {
+        if (proxyOnly) return;
         GameEvents.OnAgeChanged += OnAge;
         GameEvents.OnFinaleStarted += HideAll;
     }
 
     void OnDisable()
     {
+        if (proxyOnly) return;
         GameEvents.OnAgeChanged -= OnAge;
         GameEvents.OnFinaleStarted -= HideAll;
     }
 
     void Update()
     {
+        if (proxyOnly) return;
         if (GameManager.Instance != null && (GameManager.Instance.IsPaused || GameManager.Instance.IsEnded))
             return;
 
@@ -70,7 +96,8 @@ public class MessengerSystem : MonoBehaviour
         var keyboard = Keyboard.current;
         if (keyboard == null) return;
 
-        if (keyboard.qKey.wasPressedThisFrame && active >= 0)
+        // Legacy-путь без Dialogue: E (не Q) — как в GDD.
+        if (keyboard.eKey.wasPressedThisFrame && active >= 0)
         {
             panelOpen = !panelOpen;
             Refresh();
@@ -136,7 +163,7 @@ public class MessengerSystem : MonoBehaviour
             notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
         }
         var thread = database.threads[active];
-        float timeout = thread.timeoutSeconds > 0f ? thread.timeoutSeconds : 25f;
+        float timeout = thread.timeoutSeconds > 0f ? thread.timeoutSeconds : 8f;
         StartCoroutine(Timeout(token, timeout));
         Refresh();
     }
@@ -174,22 +201,16 @@ public class MessengerSystem : MonoBehaviour
         int next = choice.nextIndex;
         string reply = "You: " + choice.text;
         string follow = string.Empty;
-        bool clearShadow = false;
         if (thread.messages != null && next >= 0 && next < thread.messages.Length)
         {
             follow = thread.messages[next].sender + ": " + thread.messages[next].text;
-            clearShadow = thread.messages[next].removesShadow;
             messageIndex = next;
         }
 
         body.text = thread.messages[0].text + "\n\n" + reply + (string.IsNullOrEmpty(follow) ? string.Empty : "\n\n" + follow);
         choices.text = string.Empty;
+        // Тень диалогом не снимаем (GDD).
         GameEvents.MessageReplied(choice.isPositive);
-        if (clearShadow)
-        {
-            var shadows = FindAnyObjectByType<ShadowManager>();
-            if (shadows != null) shadows.RemoveShadow();
-        }
         StartCoroutine(CloseAfter(1.6f, token));
     }
 

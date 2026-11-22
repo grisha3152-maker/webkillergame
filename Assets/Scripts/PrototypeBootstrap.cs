@@ -11,6 +11,8 @@ public static class PrototypeBootstrap
         var root = new GameObject("talk with other");
         root.AddComponent<GameManager>();
         root.AddComponent<ShadowManager>();
+        // Dialogue раньше MessengerSystem: Awake у Dialogue успевает до прокси-проверки.
+        root.AddComponent<Dialogue>();
         root.AddComponent<MessengerSystem>();
         root.AddComponent<VisualProgression>();
         root.AddComponent<CutsceneController>();
