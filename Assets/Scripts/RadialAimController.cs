@@ -163,6 +163,8 @@ public class RadialAimController : MonoBehaviour
         comboPayout = payout;
         comboTarget = best;
         comboActive = true;
+        // Захват: цель стоит, пока комбо активно (не летит к герою).
+        best.SetMovementFrozen(true);
         best.ShowHitCombo(comboKeys, comboIndex);
         Debug.Log("HitCombo start: " + new string(comboKeys) + " (Space не убивает — жми Z/X/C)");
         GameEvents.HitComboStarted();
@@ -212,16 +214,37 @@ public class RadialAimController : MonoBehaviour
     {
         Monster target = comboTarget;
         int payout = comboPayout;
+        // Позицию и ширину тела берём до Kill: splash = BodyWidth × comboSplashRadiusInBodyWidths.
+        Vector2 splashCenter = target != null ? (Vector2)target.transform.position : Vector2.zero;
+        float bodyWidth = target != null ? target.BodyWidth : 0f;
+
         ClearComboState(clearLabel: false);
         if (target != null && target.Alive)
+        {
+            // Соседей ищем до Destroy основной цели (Destroy отложен до конца кадра, но Alive уже false).
+            Monster[] splash = FindSplashVictims(splashCenter, bodyWidth, exclude: target);
             target.Kill(payout, fromHitCombo: true);
+            // До двух ближайших обычных призраков в радиусе; forced не трогаем (GDD).
+            for (int i = 0; i < splash.Length; i++)
+            {
+                Monster other = splash[i];
+                if (other != null && other.Alive)
+                    other.Kill(payout, fromHitCombo: true);
+            }
+        }
+
         GameEvents.HitComboSucceeded();
     }
 
     void AbortCombo(bool flashMiss)
     {
         if (comboTarget != null)
+        {
             comboTarget.ClearHitCombo();
+            // Сброс комбо (ошибка / уход) — призрак снова летит к герою.
+            comboTarget.SetMovementFrozen(false);
+        }
+
         ClearComboState(clearLabel: false);
         if (flashMiss)
             FlashSector(currentAngle);
@@ -230,8 +253,14 @@ public class RadialAimController : MonoBehaviour
 
     void ClearComboState(bool clearLabel)
     {
-        if (clearLabel && comboTarget != null)
-            comboTarget.ClearHitCombo();
+        if (comboTarget != null)
+        {
+            if (clearLabel)
+                comboTarget.ClearHitCombo();
+            // На случай сброса без AbortCombo (бой выключен и т.п.) — снимаем стоп.
+            comboTarget.SetMovementFrozen(false);
+        }
+
         comboActive = false;
         comboTarget = null;
         comboKeys = null;
@@ -251,6 +280,8 @@ public class RadialAimController : MonoBehaviour
         {
             Monster monster = monsters[i];
             if (monster == null || !monster.Alive) continue;
+            // Forced не берётся захватом Space / конусом (GDD 11.1.1).
+            if (monster.IsForced) continue;
             Vector2 to = (Vector2)monster.transform.position - origin;
             float dist = to.magnitude;
             // Удар только внутри hitRadius из balance.json, не по всей дуге прицела.
@@ -267,6 +298,64 @@ public class RadialAimController : MonoBehaviour
         }
 
         return best;
+    }
+
+    /// <summary>
+    /// После успешного Kill — до comboSplashMaxExtraKills ближайших призраков
+    /// в радиусе BodyWidth убитого × comboSplashRadiusInBodyWidths (как hitRadius-стиль).
+    /// Forced не убиваем splash'ем.
+    /// </summary>
+    Monster[] FindSplashVictims(Vector2 center, float killedBodyWidth, Monster exclude)
+    {
+        int maxExtra = Balance.Data.comboSplashMaxExtraKills;
+        if (maxExtra <= 0 || killedBodyWidth <= 0f)
+            return System.Array.Empty<Monster>();
+
+        float radius = killedBodyWidth * Balance.Data.comboSplashRadiusInBodyWidths;
+        var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
+
+        // Два ближайших без сортировки всего списка: держим top-N по дистанции.
+        var best = new Monster[maxExtra];
+        var bestDist = new float[maxExtra];
+        for (int i = 0; i < maxExtra; i++)
+            bestDist[i] = float.MaxValue;
+
+        int filled = 0;
+        for (int i = 0; i < monsters.Length; i++)
+        {
+            Monster monster = monsters[i];
+            if (monster == null || monster == exclude || !monster.Alive) continue;
+            if (monster.IsForced) continue;
+
+            float dist = Vector2.Distance(center, monster.transform.position);
+            if (dist > radius) continue;
+
+            // Вставка в упорядоченный top-N (возрастание dist).
+            int slot = filled < maxExtra ? filled : maxExtra - 1;
+            if (filled >= maxExtra && dist >= bestDist[maxExtra - 1]) continue;
+
+            int insertAt = slot;
+            while (insertAt > 0 && dist < bestDist[insertAt - 1])
+                insertAt--;
+
+            for (int j = slot; j > insertAt; j--)
+            {
+                best[j] = best[j - 1];
+                bestDist[j] = bestDist[j - 1];
+            }
+
+            best[insertAt] = monster;
+            bestDist[insertAt] = dist;
+            if (filled < maxExtra) filled++;
+        }
+
+        if (filled == maxExtra) return best;
+        if (filled == 0) return System.Array.Empty<Monster>();
+
+        var trimmed = new Monster[filled];
+        for (int i = 0; i < filled; i++)
+            trimmed[i] = best[i];
+        return trimmed;
     }
 
     static char[] RollComboKeys()

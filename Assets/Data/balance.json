@@ -1,6 +1,8 @@
 {
   "playSeconds": 480,
   "hitRadiusInHeroWidths": 1.5,
+  "comboSplashRadiusInBodyWidths": 1.5,
+  "comboSplashMaxExtraKills": 2,
   "coneDegrees": 56,
   "hitClearsAllInCone": true,
   "baseTurnDegreesPerSecond": 240,
