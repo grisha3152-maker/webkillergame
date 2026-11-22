@@ -9,12 +9,13 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Телефон: пинги из dialogue.json по at (сек после посадки).
-/// E открывает панель только если есть активное входящее. timeScale не трогаем, тень не снимаем.
+/// ГГ никогда не отвечает текстом — только чтение входящих.
+/// E открывает историю (накопленные входящие) и/или активный пинг; timeScale не трогаем.
+/// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
+/// forcedHit на открытие E не ставится (ответов нет).
 /// </summary>
 public class Dialogue : MonoBehaviour
 {
-    const string AutoIgnoreReply = "I'm busy";
-
     [SerializeField] TextAsset dialogueJson;
 
     DialoguePing[] pings;
@@ -22,15 +23,16 @@ public class Dialogue : MonoBehaviour
     readonly HashSet<string> closed = new HashSet<string>();
     readonly HashSet<string> offered = new HashSet<string>();
     readonly Dictionary<string, int> relations = new Dictionary<string, int>();
-    readonly Dictionary<string, int> warmCounts = new Dictionary<string, int>();
     readonly Dictionary<string, int> coldCounts = new Dictionary<string, int>();
     readonly Queue<DialoguePing> waiting = new Queue<DialoguePing>();
+    /// <summary>Накопленные входящие сверху вниз; при закрытии панели не сбрасывается.</summary>
+    readonly List<HistoryLine> history = new List<HistoryLine>();
 
     DialoguePing active;
-    int choiceIndex;
     int token;
     bool panelOpen;
-    bool waitingForChoice;
+    /// <summary>Есть неотвеченный пинг (таймер игнора ещё тикает).</summary>
+    bool pendingIgnore;
     bool timingStarted;
     bool deskSeated;
     bool firstPingLogged;
@@ -39,23 +41,27 @@ public class Dialogue : MonoBehaviour
     int relationWarm = 15;
     int relationCold = -25;
     int farewellStrikes = 2;
+    int scrollLines;
 
     RectTransform panel;
     Text body;
     Text header;
-    Text choices;
+    Text footer;
     Text tab;
     AudioSource notify;
 
     /// <summary>
-    /// Есть неотвеченный выбор — курсор тупеет уже с приходом сообщения (GDD), не только при открытой панели.
+    /// Есть неотвеченный пинг — курсор тупеет уже с приходом сообщения (GDD), не только при открытой панели.
     /// </summary>
-    public bool ChoicePending => waitingForChoice && active != null;
+    public bool ChoicePending => pendingIgnore && active != null;
 
-    /// <summary>Есть активное входящее (E может открыть панель).</summary>
+    /// <summary>Есть активное входящее (вкладка / таймер игнора).</summary>
     public bool HasActiveMessage => active != null;
 
-    /// <summary>Последний ответ требовал forced-удар (для боевого агента). Игнор всегда false.</summary>
+    /// <summary>Можно открыть телефон: активный пинг или уже есть история.</summary>
+    public bool CanOpenPhone => active != null || history.Count > 0;
+
+    /// <summary>Ответов нет — forcedHit с телефона никогда не выставляется.</summary>
     public bool LastReplyForcedHit { get; private set; }
 
     void Awake()
@@ -125,8 +131,10 @@ public class Dialogue : MonoBehaviour
                 active = null;
                 waiting.Clear();
                 offered.Clear();
-                waitingForChoice = false;
+                history.Clear();
+                pendingIgnore = false;
                 panelOpen = false;
+                scrollLines = 0;
             }
             playTime = 0f;
             firstPingLogged = false;
@@ -160,7 +168,7 @@ public class Dialogue : MonoBehaviour
             else if (gm.ClockRunning) OnClockStarted();
         }
 
-        // Пинги тикают после старта; автоигнор и «боевые» пинги — после посадки (deskSeated),
+        // Пинги тикают после старта; автоигнор — после посадки (deskSeated),
         // чтобы mom@25s не сгорел во время плашек интро.
         if (timingStarted && deskSeated)
         {
@@ -183,46 +191,50 @@ public class Dialogue : MonoBehaviour
             pressedE = true;
 #endif
 
-        // E: открыть/закрыть при активном входящем (ChoicePending / HasActiveMessage). Без сообщения — ничего.
+        // E: открыть/закрыть историю или активный пинг. Без истории и пинга — ничего.
         if (pressedE)
             TogglePhone();
 
-        if (!waitingForChoice || !panelOpen || active == null) return;
+        if (!panelOpen || history.Count == 0) return;
         if (keyboard == null) return;
 
-        if (active.choices == null || active.choices.Length == 0)
-        {
-            if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
-                DismissFarewell();
-            return;
-        }
-
+        // Скролл истории стрелками (без выбора реплик).
+        int visible = VisibleHistoryLines();
+        int maxScroll = Mathf.Max(0, history.Count - visible);
         if (keyboard.upArrowKey.wasPressedThisFrame)
         {
-            choiceIndex = (choiceIndex - 1 + active.choices.Length) % active.choices.Length;
+            scrollLines = Mathf.Max(0, scrollLines - 1);
             Refresh();
         }
         else if (keyboard.downArrowKey.wasPressedThisFrame)
         {
-            choiceIndex = (choiceIndex + 1) % active.choices.Length;
+            scrollLines = Mathf.Min(maxScroll, scrollLines + 1);
             Refresh();
-        }
-        else if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
-        {
-            Commit(active.choices[choiceIndex]);
         }
     }
 
     void TogglePhone()
     {
-        if (active == null)
+        if (!CanOpenPhone)
         {
-            Debug.Log("Dialogue: E нажат, но активного сообщения нет.");
+            Debug.Log("Dialogue: E нажат, но нет истории и активного пинга.");
             return;
         }
 
         panelOpen = !panelOpen;
-        Debug.Log($"Dialogue: E → панель {(panelOpen ? "открыта" : "закрыта")} ({active.id})");
+        if (panelOpen)
+        {
+            // Новое внизу: при открытии прокрутить к концу.
+            scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
+            string who = active != null ? active.id : "история";
+            Debug.Log($"Dialogue: E → панель открыта ({who}, строк={history.Count})");
+        }
+        else
+        {
+            Debug.Log("Dialogue: E → панель закрыта (история сохранена)");
+        }
+        // Открытие E только чтение — forcedHit / MessageReplied не вызываем.
+        LastReplyForcedHit = false;
         Refresh();
     }
 
@@ -263,10 +275,13 @@ public class Dialogue : MonoBehaviour
                 continue;
 
             active = next;
-            choiceIndex = 0;
-            waitingForChoice = next.choices != null && next.choices.Length > 0;
-            panelOpen = false;
+            pendingIgnore = true;
+            // Панель сама не всплывает — только вкладка, пока игрок не нажмёт E.
+            // Исключение: прощание без ожидания ответа — сразу в историю и закрыть контакт.
             token++;
+            AppendHistory(next);
+            ApplyFlags(next.set);
+
             if (!firstPingLogged)
             {
                 firstPingLogged = true;
@@ -274,19 +289,21 @@ public class Dialogue : MonoBehaviour
             }
             else
             {
-                Debug.Log($"Dialogue: пинг «{next.id}» ({next.contact}), E открывает панель.");
+                Debug.Log($"Dialogue: пинг «{next.id}» ({next.contact}), E открывает чтение.");
             }
 
             if (notify != null && GeneratedAudio.Notification != null)
                 notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
 
-            // Прощание без выбора — сразу показать и закрыть контакт (удара нет).
-            if (!waitingForChoice)
+            // Прощание (явный bye): закрываем контакт сразу, без штрафа «I'm busy».
+            bool farewell = IsFarewellPing(next);
+            if (farewell)
             {
-                panelOpen = true;
                 CloseContact(next.contact);
-                Refresh();
+                pendingIgnore = false;
+                // Показать вкладку, чтобы игрок мог открыть; таймер только убирает active.
                 StartCoroutine(TimeoutOrIgnore(token, ignoreSeconds));
+                Refresh();
                 return;
             }
 
@@ -296,9 +313,15 @@ public class Dialogue : MonoBehaviour
         }
 
         active = null;
-        waitingForChoice = false;
-        panelOpen = false;
+        pendingIgnore = false;
         Refresh();
+    }
+
+    static bool IsFarewellPing(DialoguePing ping)
+    {
+        if (ping == null) return false;
+        // Явные прощания без таймерного штрафа отношений.
+        return ping.id == "lev_farewell";
     }
 
     IEnumerator TimeoutOrIgnore(int myToken, float seconds)
@@ -311,17 +334,19 @@ public class Dialogue : MonoBehaviour
             yield return null;
         }
         if (myToken != token || active == null) yield break;
-        // Прощание без выбора — просто закрыть, без «I'm busy».
-        if (active.choices == null || active.choices.Length == 0)
+
+        if (IsFarewellPing(active))
         {
-            DismissFarewell();
+            DismissActive();
             yield break;
         }
+
         Ignore();
     }
 
     /// <summary>
-    /// Автоигнор 8 с: ответ «I'm busy», −25 к отношениям, без forcedHit.
+    /// Автоигнор messageIgnoreSeconds: −25 к отношениям, без исходящей реплики и без forcedHit.
+    /// Сообщение уже в истории — только штраф и снятие активного пинга.
     /// </summary>
     void Ignore()
     {
@@ -329,10 +354,10 @@ public class Dialogue : MonoBehaviour
         var ping = active;
         string contact = ping.contact;
         token++;
-        waitingForChoice = false;
+        pendingIgnore = false;
         LastReplyForcedHit = false;
 
-        // Игнор = холодный удар по отношениям; удара-призрака нет.
+        // Игнор = холодный удар по отношениям; удара-призрака и текста «I'm busy» нет.
         if (contact != "desk")
         {
             ApplyRelation(contact, false);
@@ -340,94 +365,32 @@ public class Dialogue : MonoBehaviour
             MaybeCloseAfterStrikes(contact);
         }
 
-        // Коротко показать автоответ, даже если панель была закрыта.
-        panelOpen = true;
-        header.text = ContactTitle(contact);
-        body.text = ping.incoming + "\n\nYou: " + AutoIgnoreReply;
-        choices.text = string.Empty;
-        if (panel != null) panel.gameObject.SetActive(true);
-
-        StartCoroutine(CloseAfter(1.2f, token));
+        active = null;
+        // Панель не закрываем насильно: если открыта — просто обновить историю.
+        Refresh();
+        OpenNext();
     }
 
-    void DismissFarewell()
+    void DismissActive()
     {
         token++;
-        waitingForChoice = false;
+        pendingIgnore = false;
         LastReplyForcedHit = false;
         active = null;
-        panelOpen = false;
         Refresh();
         OpenNext();
     }
 
-    void Commit(DialoguePingChoice choice)
+    void AppendHistory(DialoguePing ping)
     {
-        if (active == null || choice == null) return;
-
-        token++;
-        waitingForChoice = false;
-        var ping = active;
-        string contact = ping.contact;
-        bool warm = choice.warm;
-        // Desk всегда false; родственники с выбором — true (и поле JSON, и страховка в LoadPings).
-        LastReplyForcedHit = contact != "desk" && ping.forcedHit;
-
-        ApplyFlags(choice.set);
-        if (contact != "desk")
+        if (ping == null) return;
+        history.Add(new HistoryLine
         {
-            ApplyRelation(contact, warm);
-            if (warm)
-            {
-                if (!warmCounts.ContainsKey(contact)) warmCounts[contact] = 0;
-                warmCounts[contact]++;
-                coldCounts[contact] = 0;
-            }
-            else
-            {
-                RegisterCold(contact);
-            }
-        }
-
-        string reply = choice.reply;
-        // Второй холодный маме подряд — особая реплика и замок.
-        if (contact == "mom" && !warm && coldCounts.TryGetValue(contact, out int momCold) && momCold >= farewellStrikes)
-        {
-            reply = "i'll stop knocking. you're grown.";
-            CloseContact("mom");
-        }
-        else if (!warm)
-        {
-            MaybeCloseAfterStrikes(contact);
-        }
-
-        if (HasFlag("anya_closed"))
-            CloseContact("anya");
-        // Холодный отказ на прогулку — Лев на время замолкает (не пишет в 470).
-        if (contact == "lev" && !warm && ping.id == "lev_walk")
-            CloseContact("lev");
-
-        panelOpen = true;
-        header.text = ContactTitle(contact);
-        body.text = ping.incoming + "\n\nYou: " + choice.label + "\n\n" + ContactTitle(contact) + ": " + reply;
-        choices.text = string.Empty;
-        if (panel != null) panel.gameObject.SetActive(true);
-
-        // Тень диалогом не снимаем. Forced-спавн — зона боя, только флаг + событие ответа.
-        GameEvents.MessageReplied(warm);
-
-        StartCoroutine(CloseAfter(1.5f, token));
-    }
-
-    IEnumerator CloseAfter(float seconds, int myToken)
-    {
-        yield return new WaitForSeconds(seconds);
-        if (myToken != token) yield break;
-        active = null;
-        waitingForChoice = false;
-        panelOpen = false;
-        Refresh();
-        OpenNext();
+            contact = ping.contact,
+            text = ping.incoming
+        });
+        if (panelOpen)
+            scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
     }
 
     void RegisterCold(string contact)
@@ -438,11 +401,23 @@ public class Dialogue : MonoBehaviour
 
     void MaybeCloseAfterStrikes(string contact)
     {
-        if (contact == "desk" || contact == "mom") return;
+        // Мама и Аня продолжают писать в молчание до поздних битов; desk без замка.
+        if (contact == "desk" || contact == "mom" || contact == "anya") return;
         if (!coldCounts.TryGetValue(contact, out int n) || n < farewellStrikes) return;
-        // Аня закрывается явными флагами anya_closed; общий замок — для остальных близких.
-        if (contact == "anya") return;
+        if (closed.Contains(contact)) return;
         CloseContact(contact);
+        // Прощание сразу в историю (пинг lev_farewell мог уже не успеть).
+        if (contact == "lev")
+        {
+            history.Add(new HistoryLine
+            {
+                contact = "lev",
+                text = "i won't write into a mute chat anymore. bye."
+            });
+            if (panelOpen)
+                scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
+        }
+        Debug.Log($"Dialogue: контакт «{contact}» закрыт после {n} игноров.");
     }
 
     void ApplyRelation(string contact, bool warm)
@@ -470,8 +445,6 @@ public class Dialogue : MonoBehaviour
         closed.Add(contact);
     }
 
-    bool HasFlag(string id) => flags.Contains(id);
-
     bool RequiresMet(DialoguePing ping)
     {
         if (ping.requires == null || ping.requires.Length == 0) return true;
@@ -488,27 +461,17 @@ public class Dialogue : MonoBehaviour
     {
         flags.Remove("lev_relation_gt_25");
         flags.Remove("lev_relation_lte_25");
-        flags.Remove("anya_warm_ge_2");
-        flags.Remove("anya_warm_lt_2");
 
         int levRel = relations.TryGetValue("lev", out int lr) ? lr : 45;
         if (levRel > 25) flags.Add("lev_relation_gt_25");
         else flags.Add("lev_relation_lte_25");
-
-        int anyaWarm = warmCounts.TryGetValue("anya", out int aw) ? aw : 0;
-        // Ветка «почти написала» — только если Аня жива и тёплых < 2.
-        if (!closed.Contains("anya"))
-        {
-            if (anyaWarm >= 2) flags.Add("anya_warm_ge_2");
-            else flags.Add("anya_warm_lt_2");
-        }
     }
 
     void HideAll()
     {
         token++;
         active = null;
-        waitingForChoice = false;
+        pendingIgnore = false;
         panelOpen = false;
         waiting.Clear();
         if (panel != null) panel.gameObject.SetActive(false);
@@ -517,37 +480,53 @@ public class Dialogue : MonoBehaviour
 
     void Refresh()
     {
-        bool has = active != null;
-        bool showPanel = has && panelOpen;
-        // Вкладка «входящее», если сообщение есть, а панель ещё не открыта.
+        bool hasActive = active != null;
+        bool showPanel = panelOpen && CanOpenPhone;
+        // Вкладка «входящее», если есть активный пинг, а панель ещё не открыта.
         if (tab != null)
         {
-            tab.gameObject.SetActive(has && !panelOpen && waitingForChoice);
-            if (has) tab.text = ContactTitle(active.contact) + "\n[E]";
+            tab.gameObject.SetActive(hasActive && !panelOpen && pendingIgnore);
+            if (hasActive) tab.text = ContactTitle(active.contact) + "\n[E]";
         }
         if (panel != null) panel.gameObject.SetActive(showPanel);
-        if (!showPanel || active == null) return;
+        if (!showPanel) return;
 
-        header.text = ContactTitle(active.contact);
-        if (waitingForChoice && active.choices != null && active.choices.Length > 0)
-        {
-            // Текст сразу блоком, без печатной машинки.
-            body.text = active.incoming;
-            var builder = new System.Text.StringBuilder();
-            for (int i = 0; i < active.choices.Length; i++)
-            {
-                builder.Append(i == choiceIndex ? "> " : "  ");
-                builder.Append(active.choices[i].label);
-                if (i < active.choices.Length - 1) builder.Append('\n');
-            }
-            choices.text = builder.ToString();
-        }
-        else if (active.choices == null || active.choices.Length == 0)
-        {
-            body.text = active.incoming;
-            choices.text = "(Enter)";
-        }
+        if (hasActive)
+            header.text = ContactTitle(active.contact);
+        else if (history.Count > 0)
+            header.text = ContactTitle(history[history.Count - 1].contact);
+        else
+            header.text = "Phone";
+
+        body.text = BuildHistoryText();
+        footer.text = history.Count > VisibleHistoryLines()
+            ? "↑↓ scroll  ·  [E] close"
+            : "[E] close";
     }
+
+    string BuildHistoryText()
+    {
+        if (history.Count == 0) return string.Empty;
+
+        int visible = VisibleHistoryLines();
+        int maxScroll = Mathf.Max(0, history.Count - visible);
+        scrollLines = Mathf.Clamp(scrollLines, 0, maxScroll);
+        int start = scrollLines;
+        int end = Mathf.Min(history.Count, start + visible);
+
+        var builder = new System.Text.StringBuilder();
+        for (int i = start; i < end; i++)
+        {
+            var line = history[i];
+            builder.Append(ContactTitle(line.contact));
+            builder.Append(": ");
+            builder.Append(line.text);
+            if (i < end - 1) builder.Append("\n\n");
+        }
+        return builder.ToString();
+    }
+
+    static int VisibleHistoryLines() => 6;
 
     void InitRelationDefaults()
     {
@@ -617,17 +596,12 @@ public class Dialogue : MonoBehaviour
         var file = JsonUtility.FromJson<DialoguePingFile>(wrapped);
         pings = file != null && file.items != null ? file.items : Array.Empty<DialoguePing>();
 
-        // Desk никогда не forced; у родственника пустое поле JsonUtility читает как false — чиним.
+        // Ответов ГГ нет → forcedHit с телефона всегда false (desk и семья одинаково).
         for (int i = 0; i < pings.Length; i++)
         {
             var p = pings[i];
             if (p == null) continue;
-            if (p.contact == "desk")
-                p.forcedHit = false;
-            else if (p.choices != null && p.choices.Length > 0)
-                p.forcedHit = true;
-            else
-                p.forcedHit = false;
+            p.forcedHit = false;
         }
 
         Debug.Log($"Dialogue: загружено пингов: {pings.Length}");
@@ -675,15 +649,14 @@ public class Dialogue : MonoBehaviour
         header.fontStyle = FontStyle.Bold;
 
         body = MakeText(panel, "Body", 22, TextAnchor.UpperLeft);
-        Stretch(body.rectTransform, 20f, 70f, 20f, 180f);
+        Stretch(body.rectTransform, 20f, 70f, 20f, 56f);
         body.color = new Color(0.9f, 0.9f, 0.88f);
         body.horizontalOverflow = HorizontalWrapMode.Wrap;
-        body.verticalOverflow = VerticalWrapMode.Overflow;
+        body.verticalOverflow = VerticalWrapMode.Truncate;
 
-        choices = MakeText(panel, "Choices", 22, TextAnchor.UpperLeft);
-        Stretch(choices.rectTransform, 20f, 360f, 20f, 24f);
-        choices.color = new Color(0.82f, 0.88f, 0.8f);
-        choices.horizontalOverflow = HorizontalWrapMode.Wrap;
+        footer = MakeText(panel, "Footer", 18, TextAnchor.LowerLeft);
+        Stretch(footer.rectTransform, 20f, 520f, 20f, 16f);
+        footer.color = new Color(0.55f, 0.6f, 0.58f);
 
         panel.gameObject.SetActive(false);
     }
@@ -721,6 +694,12 @@ public class Dialogue : MonoBehaviour
             case "desk": return "DESK";
             default: return contact;
         }
+    }
+
+    struct HistoryLine
+    {
+        public string contact;
+        public string text;
     }
 
     [Serializable]
