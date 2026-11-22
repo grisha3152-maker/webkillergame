@@ -7,7 +7,6 @@ public class MonsterSpawner : MonoBehaviour
     [SerializeField] private Transform playerTransform;
 
     [Header("Настройки спавна")]
-    [SerializeField] private float spawnInterval = 1.5f;
     [SerializeField] private float spawnDistance = 250f; // Расстояние появления за пределами экрана
 
     [Header("Направление")]
@@ -36,9 +35,8 @@ public class MonsterSpawner : MonoBehaviour
 
     private float CurrentInterval()
     {
-        float age = GameManager.Instance != null ? GameManager.Instance.Age01 : 0f;
-        float fastest = Mathf.Max(0.35f, spawnInterval * 0.32f);
-        return Mathf.Lerp(spawnInterval, fastest, age);
+        float elapsed = GameManager.Instance != null ? GameManager.Instance.Elapsed : 0f;
+        return Balance.Data.SpawnEveryAt(elapsed);
     }
 
     private void SpawnMonster()
