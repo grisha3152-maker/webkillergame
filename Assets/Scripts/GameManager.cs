@@ -31,6 +31,9 @@ public class GameManager : MonoBehaviour
         }
 
         Instance = this;
+        Balance.EnsureLoaded();
+        runSeconds = Balance.Data.playSeconds;
+        basePayout = Balance.Data.dollarsPerKill;
     }
 
     void OnEnable()
@@ -76,12 +79,18 @@ public class GameManager : MonoBehaviour
         ClockRunning = true;
         Age = 14f;
         GameEvents.AgeChanged(Age);
+        // Телефон может стартовать таймер и от часов (fallback, если DeskReady задержится).
+        GameEvents.ClockStarted();
     }
 
     public void EnableCombat()
     {
         if (IsEnded) return;
+        bool first = !GameplayActive;
         GameplayActive = true;
+        // Конец opening / посадка за стол — основной сигнал для Dialogue.
+        if (first)
+            GameEvents.DeskReady();
     }
 
     public void SetPaused(bool paused)

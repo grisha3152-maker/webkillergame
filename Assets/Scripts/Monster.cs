@@ -1,3 +1,4 @@
+using System.Text;
 using UnityEngine;
 
 public class Monster : MonoBehaviour
@@ -11,6 +12,9 @@ public class Monster : MonoBehaviour
     private SpriteRenderer spriteRenderer;
     private float initialDistance;
     private bool resolved;
+    private TextMesh comboLabel;
+    private char[] comboKeys;
+    private int comboNextIndex = -1;
 
     public bool Alive => !resolved;
 
@@ -80,6 +84,10 @@ public class Monster : MonoBehaviour
             spriteRenderer.flipX = playerTransform.position.x > transform.position.x;
         }
 
+        // Лейбл комбо держим над головой, пока удар активен.
+        if (comboLabel != null && comboNextIndex >= 0)
+            PlaceComboLabel();
+
         TryReach();
     }
 
@@ -105,17 +113,123 @@ public class Monster : MonoBehaviour
 
         if (Vector2.Distance(transform.position, center) > reach) return;
         resolved = true;
-        GameEvents.HeroHit();
+        ClearHitCombo();
+        // Шаг 3: только событие/лог, без тени (тени — шаг 4).
+        GameEvents.GhostReachedHero();
         Destroy(gameObject);
     }
 
-    public void Kill(int payout)
+    /// <summary>
+    /// Убийство только после успешного комбо Z/X/C.
+    /// fromHitCombo должен быть true — вызов с Space / без комбо игнорируется (защита от старого InstantHit).
+    /// </summary>
+    public void Kill(int payout, bool fromHitCombo = false)
     {
         if (resolved) return;
+        if (!fromHitCombo)
+        {
+            Debug.LogWarning("Monster.Kill без комбо Z/X/C запрещён — Space только стартует удар.");
+            return;
+        }
+
         resolved = true;
+        ClearHitCombo();
         PixelBurst.Spawn(transform.position);
         FloatingIncome.Spawn(transform.position, payout);
         GameEvents.GhostKilled(payout);
         Destroy(gameObject);
+    }
+
+    /// <summary>Проверка hitRadius из balance (ширина героя × hitRadiusInHeroWidths).</summary>
+    public bool IsWithinHitRadius(Vector2 origin, float hitRadius)
+    {
+        return Vector2.Distance(transform.position, origin) <= hitRadius;
+    }
+
+    /// <summary>Показать последовательность Z/X/C над головой; nextIndex — текущая ожидаемая клавиша.</summary>
+    public void ShowHitCombo(char[] keys, int nextIndex)
+    {
+        comboKeys = keys;
+        comboNextIndex = nextIndex;
+        EnsureComboLabel();
+        RefreshComboText();
+        PlaceComboLabel();
+    }
+
+    public void ClearHitCombo()
+    {
+        comboKeys = null;
+        comboNextIndex = -1;
+        if (comboLabel != null)
+        {
+            Destroy(comboLabel.gameObject);
+            comboLabel = null;
+        }
+    }
+
+    void EnsureComboLabel()
+    {
+        if (comboLabel != null) return;
+        var go = new GameObject("HitComboLabel");
+        go.transform.SetParent(transform, false);
+        comboLabel = go.AddComponent<TextMesh>();
+        comboLabel.anchor = TextAnchor.LowerCenter;
+        comboLabel.alignment = TextAlignment.Center;
+        comboLabel.characterSize = 22f;
+        comboLabel.fontSize = 64;
+        comboLabel.fontStyle = FontStyle.Bold;
+        comboLabel.color = new Color(1f, 0.92f, 0.35f, 1f);
+        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font != null) comboLabel.font = font;
+        var renderer = go.GetComponent<MeshRenderer>();
+        if (renderer != null) renderer.sortingOrder = 40;
+    }
+
+    void RefreshComboText()
+    {
+        if (comboLabel == null || comboKeys == null || comboKeys.Length == 0)
+        {
+            if (comboLabel != null) comboLabel.text = string.Empty;
+            return;
+        }
+
+        // Простой world-space TextMesh: текущая клавиша в [ ], остальные через пробел.
+        var sb = new StringBuilder(comboKeys.Length * 4);
+        for (int i = 0; i < comboKeys.Length; i++)
+        {
+            if (i > 0) sb.Append(' ');
+            if (i == comboNextIndex)
+            {
+                sb.Append('[');
+                sb.Append(comboKeys[i]);
+                sb.Append(']');
+            }
+            else if (i < comboNextIndex)
+            {
+                sb.Append('_');
+            }
+            else
+            {
+                sb.Append(comboKeys[i]);
+            }
+        }
+
+        comboLabel.text = sb.ToString();
+    }
+
+    void PlaceComboLabel()
+    {
+        if (comboLabel == null) return;
+        float top = spriteRenderer != null ? spriteRenderer.bounds.max.y : transform.position.y + 40f;
+        comboLabel.transform.position = new Vector3(transform.position.x, top + 18f, 0f);
+    }
+
+    void OnDestroy()
+    {
+        if (comboLabel != null)
+        {
+            Destroy(comboLabel.gameObject);
+            comboLabel = null;
+        }
     }
 }
