@@ -15,6 +15,10 @@ public static class GameEvents
     public static event Action OnClockStarted;
     /// <summary>Посадка / конец opening (EnableCombat) — основной старт пингов.</summary>
     public static event Action OnDeskReady;
+    // Удар Z/X/C: старт / срыв / успех последовательности над одним призраком.
+    public static event Action OnHitComboStarted;
+    public static event Action OnHitComboFailed;
+    public static event Action OnHitComboSucceeded;
 
     public static void GhostKilled(int payout) => OnGhostKilled?.Invoke(payout);
 
@@ -33,4 +37,7 @@ public static class GameEvents
     public static void ComboRestored() => OnComboRestored?.Invoke();
     public static void ClockStarted() => OnClockStarted?.Invoke();
     public static void DeskReady() => OnDeskReady?.Invoke();
+    public static void HitComboStarted() => OnHitComboStarted?.Invoke();
+    public static void HitComboFailed() => OnHitComboFailed?.Invoke();
+    public static void HitComboSucceeded() => OnHitComboSucceeded?.Invoke();
 }
