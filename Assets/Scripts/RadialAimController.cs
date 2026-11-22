@@ -94,13 +94,14 @@ public class RadialAimController : MonoBehaviour
             }
         }
 
+        // Единственный обработчик Space: только старт комбо. Мгновенного Kill / Attack / InstantHit нет.
         if (comboActive)
             TickCombo(origin);
         else
         {
             var keyboard = Keyboard.current;
             if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
-                BeginAttack(origin);
+                StartHitCombo(origin);
         }
     }
 
@@ -131,7 +132,11 @@ public class RadialAimController : MonoBehaviour
         currentAngle = Mathf.MoveTowards(currentAngle, targetAngle, speed * Time.deltaTime);
     }
 
-    void BeginAttack(Vector2 origin)
+    /// <summary>
+    /// Space: выбрать цель в конусе/hitRadius и показать комбо. Не вызывает Kill.
+    /// Старый путь Attack()/InstantHit удалён — убийство только в FinishHitCombo после Z/X/C.
+    /// </summary>
+    void StartHitCombo(Vector2 origin)
     {
         // Пока комбо на одном призраке — новый Space / другая цель игнорируются (см. TickCombo).
         if (comboActive) return;
@@ -155,6 +160,7 @@ public class RadialAimController : MonoBehaviour
         comboTarget = best;
         comboActive = true;
         best.ShowHitCombo(comboKeys, comboIndex);
+        Debug.Log("HitCombo start: " + new string(comboKeys) + " (Space не убивает — жми Z/X/C)");
         GameEvents.HitComboStarted();
     }
 
@@ -190,16 +196,22 @@ public class RadialAimController : MonoBehaviour
         comboIndex++;
         if (comboIndex >= comboKeys.Length)
         {
-            Monster target = comboTarget;
-            int payout = comboPayout;
-            ClearComboState(clearLabel: false);
-            if (target != null && target.Alive)
-                target.Kill(payout);
-            GameEvents.HitComboSucceeded();
+            FinishHitCombo();
             return;
         }
 
         comboTarget.ShowHitCombo(comboKeys, comboIndex);
+    }
+
+    /// <summary>Единственное место, где удар завершается убийством — после всех клавиш комбо.</summary>
+    void FinishHitCombo()
+    {
+        Monster target = comboTarget;
+        int payout = comboPayout;
+        ClearComboState(clearLabel: false);
+        if (target != null && target.Alive)
+            target.Kill(payout, fromHitCombo: true);
+        GameEvents.HitComboSucceeded();
     }
 
     void AbortCombo(bool flashMiss)

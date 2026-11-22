@@ -119,9 +119,19 @@ public class Monster : MonoBehaviour
         Destroy(gameObject);
     }
 
-    public void Kill(int payout)
+    /// <summary>
+    /// Убийство только после успешного комбо Z/X/C.
+    /// fromHitCombo должен быть true — вызов с Space / без комбо игнорируется (защита от старого InstantHit).
+    /// </summary>
+    public void Kill(int payout, bool fromHitCombo = false)
     {
         if (resolved) return;
+        if (!fromHitCombo)
+        {
+            Debug.LogWarning("Monster.Kill без комбо Z/X/C запрещён — Space только стартует удар.");
+            return;
+        }
+
         resolved = true;
         ClearHitCombo();
         PixelBurst.Spawn(transform.position);
@@ -165,9 +175,10 @@ public class Monster : MonoBehaviour
         comboLabel = go.AddComponent<TextMesh>();
         comboLabel.anchor = TextAnchor.LowerCenter;
         comboLabel.alignment = TextAlignment.Center;
-        comboLabel.characterSize = 14f;
-        comboLabel.fontSize = 42;
-        comboLabel.color = new Color(0.92f, 0.96f, 1f, 1f);
+        comboLabel.characterSize = 22f;
+        comboLabel.fontSize = 64;
+        comboLabel.fontStyle = FontStyle.Bold;
+        comboLabel.color = new Color(1f, 0.92f, 0.35f, 1f);
         var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font != null) comboLabel.font = font;
         var renderer = go.GetComponent<MeshRenderer>();
