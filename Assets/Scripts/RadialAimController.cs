@@ -18,12 +18,8 @@ public class RadialAimController : MonoBehaviour
     Transform player;
     Collider2D playerCollider;
     SpriteRenderer playerSprite;
-    LineRenderer ring;
+    // Визуал прицела — только палочка (линия от героя по углу). Без кольца / сектора-заливки.
     LineRenderer cursor;
-    LineRenderer sector;
-    bool sectorVisible;
-    float sectorTimer;
-    float sectorDrawAngle = AngleTop;
 
     // Комбо удара: Space выбирает цель, Z/X/C добивают. Длина 2–4 кидается в момент старта удара (не при спавне).
     static readonly char[] ComboPool = { 'Z', 'X', 'C' };
@@ -43,10 +39,7 @@ public class RadialAimController : MonoBehaviour
             playerSprite = player.GetComponent<SpriteRenderer>();
         }
         aimRadius = MeasureAimRadius();
-        ring = MakeLine("AimRing", 10, 2.8f);
-        cursor = MakeLine("AimCursor", 12, 4.2f);
-        sector = MakeLine("AimSector", 11, 5f);
-        DrawRing();
+        cursor = MakeStick("AimCursor", 12, 3.2f);
     }
 
     void OnEnable()
@@ -68,31 +61,17 @@ public class RadialAimController : MonoBehaviour
     void Update()
     {
         bool combat = GameManager.Instance == null || GameManager.Instance.AllowCombat;
-        if (ring != null) ring.enabled = combat;
         if (cursor != null) cursor.enabled = combat;
         if (!combat)
         {
-            if (sector != null) sector.enabled = false;
             // Бой выключен — активное комбо сбрасываем без вспышки.
-            if (comboActive) AbortCombo(flashMiss: false);
+            if (comboActive) AbortCombo();
             return;
         }
 
         Vector2 origin = Origin();
         ReadAim();
-        DrawRing();
         DrawCursor(origin);
-
-        if (sectorVisible)
-        {
-            sectorTimer -= Time.deltaTime;
-            DrawSector(origin, sectorDrawAngle, new Color(0.65f, 0.82f, 1f, Mathf.Clamp01(sectorTimer / 0.18f)));
-            if (sectorTimer <= 0f)
-            {
-                sectorVisible = false;
-                sector.enabled = false;
-            }
-        }
 
         // Единственный обработчик Space: только старт комбо. Мгновенного Kill / Attack / InstantHit нет.
         if (comboActive)
@@ -115,10 +94,6 @@ public class RadialAimController : MonoBehaviour
         bool holdW = keyboard.wKey.isPressed;
         bool holdD = keyboard.dKey.isPressed;
         bool holding = holdA || holdW || holdD;
-
-        if (keyboard.aKey.wasPressedThisFrame) FlashSector(AngleLeft);
-        if (keyboard.wKey.wasPressedThisFrame) FlashSector(AngleTop);
-        if (keyboard.dKey.wasPressedThisFrame) FlashSector(AngleRight);
 
         if (!holding)
         {
@@ -148,8 +123,7 @@ public class RadialAimController : MonoBehaviour
         Monster best = FindBestTarget(origin);
         if (best == null)
         {
-            // Промах — только подсветка сектора, без штрафа.
-            FlashSector(currentAngle);
+            // Промах — без штрафа (визуал сектора убран).
             return;
         }
 
@@ -175,14 +149,14 @@ public class RadialAimController : MonoBehaviour
         // Цель умерла / ушла / уничтожена — срыв как промах.
         if (comboTarget == null || !comboTarget.Alive)
         {
-            AbortCombo(flashMiss: true);
+            AbortCombo();
             return;
         }
 
         float hitRadius = HitRadius();
         if (!comboTarget.IsWithinHitRadius(origin, hitRadius))
         {
-            AbortCombo(flashMiss: true);
+            AbortCombo();
             return;
         }
 
@@ -195,7 +169,7 @@ public class RadialAimController : MonoBehaviour
 
         if (pressed.Value != comboKeys[comboIndex])
         {
-            AbortCombo(flashMiss: true);
+            AbortCombo();
             return;
         }
 
@@ -236,7 +210,7 @@ public class RadialAimController : MonoBehaviour
         GameEvents.HitComboSucceeded();
     }
 
-    void AbortCombo(bool flashMiss)
+    void AbortCombo()
     {
         if (comboTarget != null)
         {
@@ -246,8 +220,6 @@ public class RadialAimController : MonoBehaviour
         }
 
         ClearComboState(clearLabel: false);
-        if (flashMiss)
-            FlashSector(currentAngle);
         GameEvents.HitComboFailed();
     }
 
@@ -414,13 +386,6 @@ public class RadialAimController : MonoBehaviour
         return messenger != null && messenger.ChoicePending;
     }
 
-    void FlashSector(float centerAngle)
-    {
-        sectorDrawAngle = centerAngle;
-        sectorVisible = true;
-        sectorTimer = 0.18f;
-    }
-
     float HeroWidth()
     {
         if (playerCollider != null) return Mathf.Max(1f, playerCollider.bounds.size.x);
@@ -449,47 +414,19 @@ public class RadialAimController : MonoBehaviour
         return Vector2.zero;
     }
 
-    void DrawRing()
-    {
-        if (ring == null) return;
-        const int steps = 28;
-        ring.positionCount = steps + 1;
-        Vector2 origin = Origin();
-        for (int i = 0; i <= steps; i++)
-        {
-            float angle = Mathf.Lerp(AngleRight, AngleLeft, i / (float)steps) * Mathf.Deg2Rad;
-            Vector3 point = origin + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * aimRadius;
-            point.z = 0f;
-            ring.SetPosition(i, point);
-        }
-    }
-
     void DrawCursor(Vector2 origin)
     {
         if (cursor == null) return;
         float rad = currentAngle * Mathf.Deg2Rad;
         Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
+        // Палочка от края героя до радиуса прицела — без дуги и без сектора.
+        float inner = Mathf.Max(HeroWidth() * 0.55f, aimRadius * 0.12f);
         cursor.positionCount = 2;
-        cursor.SetPosition(0, origin + dir * (aimRadius * 0.78f));
-        cursor.SetPosition(1, origin + dir * (aimRadius * 1.04f));
+        cursor.SetPosition(0, origin + dir * inner);
+        cursor.SetPosition(1, origin + dir * aimRadius);
     }
 
-    void DrawSector(Vector2 origin, float centerAngle, Color color)
-    {
-        if (sector == null) return;
-        float half = Balance.Data.SectorHalfAngle;
-        sector.enabled = true;
-        sector.startColor = color;
-        sector.endColor = color;
-        sector.positionCount = 3;
-        float a0 = (centerAngle - half) * Mathf.Deg2Rad;
-        float a1 = (centerAngle + half) * Mathf.Deg2Rad;
-        sector.SetPosition(0, origin);
-        sector.SetPosition(1, (Vector3)origin + new Vector3(Mathf.Cos(a0), Mathf.Sin(a0), 0f) * aimRadius);
-        sector.SetPosition(2, (Vector3)origin + new Vector3(Mathf.Cos(a1), Mathf.Sin(a1), 0f) * aimRadius);
-    }
-
-    LineRenderer MakeLine(string name, int order, float width)
+    LineRenderer MakeStick(string name, int order, float width)
     {
         var go = new GameObject(name);
         go.transform.SetParent(transform, false);
@@ -497,10 +434,10 @@ public class RadialAimController : MonoBehaviour
         line.useWorldSpace = true;
         line.loop = false;
         line.widthMultiplier = width;
-        line.numCapVertices = 4;
+        line.numCapVertices = 0;
         line.sortingOrder = order;
         line.material = LineMaterial();
-        var tint = new Color(0.62f, 0.8f, 0.95f, 0.45f);
+        var tint = new Color(0.78f, 0.88f, 0.98f, 0.85f);
         line.startColor = tint;
         line.endColor = tint;
         line.positionCount = 2;
