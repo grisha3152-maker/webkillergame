@@ -11,6 +11,7 @@ public static class PrototypeBootstrap
         var root = new GameObject("talk with other");
         root.AddComponent<GameManager>();
         root.AddComponent<ShadowManager>();
+        root.AddComponent<Dialogue>();
         root.AddComponent<MessengerSystem>();
         root.AddComponent<VisualProgression>();
         root.AddComponent<CutsceneController>();
