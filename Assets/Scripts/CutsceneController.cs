@@ -9,9 +9,21 @@ public class CutsceneController : MonoBehaviour
     Text caption;
     Text hint;
     Text paused;
+    // Плашки captionRoot — только для ending; стартовый дисклеймер/тексты убраны
     GameObject captionRoot;
+    // Корневой хук под будущую анимацию катсцены (сейчас — чёрный экран-заглушка)
+    GameObject cutsceneRoot;
     bool ending;
+    // true после нормального конца заглушки или пропуска по U
+    bool openingDone;
+    // true, пока играет стартовая катсцена-заглушка
+    bool cutscenePlaying;
+    /// <summary>Флаг «cutscene playing» — для будущей анимации и отладки.</summary>
+    public bool IsCutscenePlaying => cutscenePlaying;
     int kills;
+
+    // Длительность placeholder-катсцены до анимации
+    const float PlaceholderSeconds = 2.5f;
 
     void Start()
     {
@@ -34,9 +46,18 @@ public class CutsceneController : MonoBehaviour
         if (paused != null && GameManager.Instance != null)
             paused.gameObject.SetActive(GameManager.Instance.IsPaused && !ending);
 
-        if (!ending) return;
         var keyboard = Keyboard.current;
-        if (keyboard != null && keyboard.rKey.wasPressedThisFrame)
+        if (keyboard == null) return;
+
+        // Пропуск стартовой катсцены-заглушки по U — тот же переход в геймплей, что после нормального конца
+        if (!openingDone && !ending && keyboard.uKey.wasPressedThisFrame)
+        {
+            SkipOpening();
+            return;
+        }
+
+        if (!ending) return;
+        if (keyboard.rKey.wasPressedThisFrame)
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
@@ -44,33 +65,66 @@ public class CutsceneController : MonoBehaviour
     {
         if (ending) return;
         ending = true;
+        openingDone = true;
+        cutscenePlaying = false;
         StopAllCoroutines();
+        HideCutsceneStub();
         StartCoroutine(Ending(quiet));
     }
 
-    IEnumerator Opening()
+    // Скрыть заглушку и продолжить игру как после полного интро
+    void SkipOpening()
     {
-        yield return Show("This story deals with burnout, loneliness, and depression.\n\nPress Enter", waitForEnter: true);
-        if (GameManager.Instance != null) GameManager.Instance.StartClock();
+        if (openingDone || ending) return;
+        openingDone = true;
+        cutscenePlaying = false;
+        StopAllCoroutines();
+        FinishOpening();
+    }
 
-        var crack = gameObject.AddComponent<AudioSource>();
-        crack.spatialBlend = 0f;
-        crack.PlayOneShot(GeneratedAudio.Crack, 0.5f);
+    // Общий хвост после интро/катсцены: часы, бой, подсказка, заглушка скрыта
+    void FinishOpening()
+    {
+        HideCutsceneStub();
 
-        yield return Show("He closes the door.", 3.2f);
-        yield return Show("Behind it, his mother is shouting.", 3.4f);
-        yield return Show("His father answers, drunk.", 3.2f);
-        yield return Show("Glass breaks.", 2.6f);
-        yield return Show("He sits down. He does not turn around.", 3.4f);
-        yield return Show("When your server is under attack, you must know how to defend it. To destroy the [****] attacks, aim at them and use your defense (press Space). Remember, the most important thing is our servers. May the grind be with you.", 11f);
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.StartClock();
+            GameManager.Instance.EnableCombat();
+        }
 
         if (captionRoot != null) captionRoot.SetActive(false);
-        if (GameManager.Instance != null) GameManager.Instance.EnableCombat();
         if (hint != null)
         {
             hint.gameObject.SetActive(true);
             hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nQ  —  Messages";
         }
+    }
+
+    void HideCutsceneStub()
+    {
+        cutscenePlaying = false;
+        if (cutsceneRoot != null) cutsceneRoot.SetActive(false);
+    }
+
+    // Стартовая катсцена: заглушка без анимации (чёрный экран + флаг). Анимацию подставят позже в cutsceneRoot.
+    IEnumerator Opening()
+    {
+        cutscenePlaying = true;
+        if (cutsceneRoot != null) cutsceneRoot.SetActive(true);
+        if (captionRoot != null) captionRoot.SetActive(false);
+
+        float t = 0f;
+        while (t < PlaceholderSeconds)
+        {
+            // На U корутину остановит SkipOpening — сюда доходим только при нормальном просмотре
+            if (openingDone) yield break;
+            t += Time.deltaTime;
+            yield return null;
+        }
+
+        openingDone = true;
+        FinishOpening();
     }
 
     void CountKill(int _)
@@ -159,6 +213,19 @@ public class CutsceneController : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
 
+        // Пустой/минимальный root под будущую анимацию катсцены
+        cutsceneRoot = new GameObject("CutsceneRoot");
+        cutsceneRoot.transform.SetParent(canvasGo.transform, false);
+        var cutRect = cutsceneRoot.AddComponent<RectTransform>();
+        cutRect.anchorMin = Vector2.zero;
+        cutRect.anchorMax = Vector2.one;
+        cutRect.offsetMin = Vector2.zero;
+        cutRect.offsetMax = Vector2.zero;
+        var cutBack = cutsceneRoot.AddComponent<Image>();
+        cutBack.color = Color.black;
+        cutBack.raycastTarget = false;
+        cutsceneRoot.SetActive(false);
+
         captionRoot = new GameObject("Caption");
         captionRoot.transform.SetParent(canvasGo.transform, false);
         var rect = captionRoot.AddComponent<RectTransform>();
@@ -170,6 +237,7 @@ public class CutsceneController : MonoBehaviour
         back.color = new Color(0f, 0f, 0f, 0.55f);
         back.raycastTarget = false;
         caption = CreateText(captionRoot.transform, 30);
+        captionRoot.SetActive(false);
 
         var hintGo = new GameObject("AimHint");
         hintGo.transform.SetParent(canvasGo.transform, false);
