@@ -18,6 +18,7 @@ public static class PrototypeBootstrap
         if (existing != null)
         {
             EnsureDialogue(existing.gameObject);
+            EnsureCameraTension();
             return;
         }
 
@@ -30,6 +31,7 @@ public static class PrototypeBootstrap
         root.AddComponent<VisualProgression>();
         root.AddComponent<CutsceneController>();
         root.AddComponent<RadialAimController>();
+        EnsureCameraTension();
         Debug.Log("PrototypeBootstrap: создан корень talk with other + Dialogue.");
     }
 
@@ -40,5 +42,14 @@ public static class PrototypeBootstrap
         if (host.GetComponent<MessengerSystem>() == null)
             host.AddComponent<MessengerSystem>();
         Debug.Log("PrototypeBootstrap: Dialogue добавлен на существующий GameManager.");
+    }
+
+    /// <summary>Зум на Main Camera без правки SampleScene.</summary>
+    static void EnsureCameraTension()
+    {
+        if (Object.FindAnyObjectByType<CameraTension>() != null) return;
+        var cam = Camera.main;
+        if (cam == null) return;
+        cam.gameObject.AddComponent<CameraTension>();
     }
 }

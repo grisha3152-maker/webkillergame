@@ -20,6 +20,8 @@ public static class GameEvents
     public static event Action OnHitComboStarted;
     public static event Action OnHitComboFailed;
     public static event Action OnHitComboSucceeded;
+    /// <summary>Новое входящее уведомление телефона (пинг стал активным).</summary>
+    public static event Action<string> OnMessageArrived;
 
     public static void GhostKilled(int payout) => OnGhostKilled?.Invoke(payout);
 
@@ -41,4 +43,5 @@ public static class GameEvents
     public static void HitComboStarted() => OnHitComboStarted?.Invoke();
     public static void HitComboFailed() => OnHitComboFailed?.Invoke();
     public static void HitComboSucceeded() => OnHitComboSucceeded?.Invoke();
+    public static void MessageArrived(string contactId) => OnMessageArrived?.Invoke(contactId);
 }

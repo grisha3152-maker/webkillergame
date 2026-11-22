@@ -295,6 +295,9 @@ public class Dialogue : MonoBehaviour
             if (notify != null && GeneratedAudio.Notification != null)
                 notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
 
+            // Сигнал камере и прочим слушателям: пришло новое входящее.
+            GameEvents.MessageArrived(next.contact);
+
             // Прощание (явный bye): закрываем контакт сразу, без штрафа «I'm busy».
             bool farewell = IsFarewellPing(next);
             if (farewell)
