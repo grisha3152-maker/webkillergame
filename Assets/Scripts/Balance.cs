@@ -76,6 +76,17 @@ public class BalanceData
 
     public float SectorHalfAngle => coneDegrees * 0.5f;
 
+    public float SpawnEveryAt(float elapsed)
+    {
+        if (eras == null || eras.Length == 0) return 4f;
+        for (int i = 0; i < eras.Length; i++)
+        {
+            if (elapsed <= eras[i].until)
+                return Mathf.Max(0.1f, eras[i].spawnEvery);
+        }
+        return Mathf.Max(0.1f, eras[eras.Length - 1].spawnEvery);
+    }
+
     public void Normalize()
     {
         if (relationStart == null) relationStart = new RelationStart();
@@ -100,10 +111,10 @@ public class BalanceData
         {
             eras = new[]
             {
-                new EraBalance { id = "14", until = 120f, ghostSpeed = 1f, spawnEvery = 2.4f },
-                new EraBalance { id = "20", until = 200f, ghostSpeed = 1.25f, spawnEvery = 1.9f },
-                new EraBalance { id = "30", until = 380f, ghostSpeed = 1.7f, spawnEvery = 1.3f },
-                new EraBalance { id = "50", until = 480f, ghostSpeed = 2.3f, spawnEvery = 0.8f }
+                new EraBalance { id = "14", until = 120f, ghostSpeed = 1f, spawnEvery = 4f },
+                new EraBalance { id = "20", until = 200f, ghostSpeed = 1.25f, spawnEvery = 3.2f },
+                new EraBalance { id = "30", until = 380f, ghostSpeed = 1.7f, spawnEvery = 2.2f },
+                new EraBalance { id = "50", until = 480f, ghostSpeed = 2.3f, spawnEvery = 1.5f }
             },
             spawnWeights = new SpawnWeights { left = 0.35f, right = 0.35f, top = 0.3f },
             relationStart = new RelationStart { mom = 60, anya = 40, lev = 45, mila = 50 }
@@ -128,7 +139,7 @@ public class EraBalance
     public string id;
     public float until;
     public float ghostSpeed = 1f;
-    public float spawnEvery = 2.4f;
+    public float spawnEvery = 4f;
 }
 
 [Serializable]
