@@ -10,13 +10,33 @@ public class Monster : MonoBehaviour
 
     private Transform playerTransform;
     private SpriteRenderer spriteRenderer;
+    private Collider2D bodyCollider;
     private float initialDistance;
     private bool resolved;
+    /// <summary>Заморожен захватом HitCombo (Space): не летит к герою, пока комбо активно.</summary>
+    private bool movementFrozen;
     private TextMesh comboLabel;
     private char[] comboKeys;
     private int comboNextIndex = -1;
 
     public bool Alive => !resolved;
+
+    /// <summary>
+    /// Forced-призрак (GDD 11.1.1): конус / splash комбо его не убивают.
+    /// Спавн Forced пока не подключён — флаг готов к использованию.
+    /// </summary>
+    public bool IsForced { get; private set; }
+
+    /// <summary>Ширина тела (renderer/bounds) для радиуса splash после успешного комбо.</summary>
+    public float BodyWidth
+    {
+        get
+        {
+            if (spriteRenderer != null) return Mathf.Max(1f, spriteRenderer.bounds.size.x);
+            if (bodyCollider != null) return Mathf.Max(1f, bodyCollider.bounds.size.x);
+            return 40f;
+        }
+    }
 
     private void Awake()
     {
@@ -31,8 +51,8 @@ public class Monster : MonoBehaviour
             body.bodyType = RigidbodyType2D.Kinematic;
         }
 
-        var hitbox = GetComponent<Collider2D>();
-        if (hitbox != null) hitbox.isTrigger = true;
+        bodyCollider = GetComponent<Collider2D>();
+        if (bodyCollider != null) bodyCollider.isTrigger = true;
     }
 
     public void Initialize(Transform target)
@@ -43,6 +63,18 @@ public class Monster : MonoBehaviour
             // Запоминаем точную дистанцию, на которой заспавнился монстр
             initialDistance = Vector2.Distance(transform.position, playerTransform.position);
         }
+    }
+
+    /// <summary>Пометить как forced (SpawnForced). Пока флаг true — не умирает от конуса/splash.</summary>
+    public void MarkForced(bool forced = true)
+    {
+        IsForced = forced;
+    }
+
+    /// <summary>Остановить / возобновить полёт к герою на время HitCombo.</summary>
+    public void SetMovementFrozen(bool frozen)
+    {
+        movementFrozen = frozen;
     }
 
     private void Update()
@@ -61,6 +93,15 @@ public class Monster : MonoBehaviour
             {
                 return;
             }
+        }
+
+        // Захват комбо: стоим на месте, лейбл обновляем, до героя не летим.
+        if (movementFrozen)
+        {
+            if (comboLabel != null && comboNextIndex >= 0)
+                PlaceComboLabel();
+            TryReach();
+            return;
         }
 
         // Текущая дистанция до героя

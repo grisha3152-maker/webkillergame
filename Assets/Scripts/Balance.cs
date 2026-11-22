@@ -48,6 +48,10 @@ public class BalanceData
 {
     public float playSeconds = 480f;
     public float hitRadiusInHeroWidths = 1.5f;
+    /// <summary>Радиус splash после успешного комбо = ширина тела убитого × это число (стиль hitRadius).</summary>
+    public float comboSplashRadiusInBodyWidths = 1.5f;
+    /// <summary>Сколько ещё призраков убивает splash вокруг успешной цели комбо (ближайшие).</summary>
+    public int comboSplashMaxExtraKills = 2;
     public float coneDegrees = 56f;
     public bool hitClearsAllInCone = true;
     public float baseTurnDegreesPerSecond = 240f;
@@ -98,6 +102,8 @@ public class BalanceData
             familyContacts = new[] { "mom", "anya", "lev", "mila" };
         if (coneDegrees <= 0f) coneDegrees = 56f;
         if (hitRadiusInHeroWidths <= 0f) hitRadiusInHeroWidths = 1.5f;
+        if (comboSplashRadiusInBodyWidths <= 0f) comboSplashRadiusInBodyWidths = 1.5f;
+        if (comboSplashMaxExtraKills < 0) comboSplashMaxExtraKills = 0;
         if (baseTurnDegreesPerSecond <= 0f) baseTurnDegreesPerSecond = 240f;
         if (killsToRestoreTurn <= 0) killsToRestoreTurn = 5;
         if (dollarsPerKill <= 0) dollarsPerKill = 10;
