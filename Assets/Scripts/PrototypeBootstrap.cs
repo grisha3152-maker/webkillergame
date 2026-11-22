@@ -5,6 +5,7 @@ public static class PrototypeBootstrap
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     static void Boot()
     {
+        Balance.EnsureLoaded();
         if (GameObject.FindGameObjectWithTag("Player") == null) return;
         if (Object.FindAnyObjectByType<GameManager>() != null) return;
 

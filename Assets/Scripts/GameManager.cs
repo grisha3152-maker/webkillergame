@@ -31,6 +31,9 @@ public class GameManager : MonoBehaviour
         }
 
         Instance = this;
+        Balance.EnsureLoaded();
+        runSeconds = Balance.Data.playSeconds;
+        basePayout = Balance.Data.dollarsPerKill;
     }
 
     void OnEnable()
