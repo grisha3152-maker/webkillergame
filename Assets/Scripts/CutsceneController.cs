@@ -107,12 +107,15 @@ public class CutsceneController : MonoBehaviour
         if (cutsceneRoot != null) cutsceneRoot.SetActive(false);
     }
 
-    // Стартовая катсцена: заглушка без анимации (чёрный экран + флаг). Анимацию подставят позже в cutsceneRoot.
+    // Стартовая катсцена: ТОЛЬКО заглушка (чёрный CutsceneRoot). Никаких дисклеймеров/текстовых плашек.
+    // Строки вроде "This story deals…" / "He closes the door." здесь больше не вызываются — они остались только на main до merge PR.
     IEnumerator Opening()
     {
         cutscenePlaying = true;
-        if (cutsceneRoot != null) cutsceneRoot.SetActive(true);
+        // Плашки гарантированно выключены на всём старте
         if (captionRoot != null) captionRoot.SetActive(false);
+        if (caption != null) caption.text = string.Empty;
+        if (cutsceneRoot != null) cutsceneRoot.SetActive(true);
 
         float t = 0f;
         while (t < PlaceholderSeconds)
@@ -185,21 +188,13 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    IEnumerator Show(string text, float seconds = 0f, bool waitForEnter = false, bool hold = false)
+    // Плашки captionRoot — только ending. На старте/катсцене Show не вызывается и здесь ещё раз отсекается.
+    IEnumerator Show(string text, float seconds = 0f, bool hold = false)
     {
+        if (!ending) yield break;
         if (captionRoot != null) captionRoot.SetActive(true);
         if (caption != null) caption.text = text;
         if (hold) yield break;
-        if (waitForEnter)
-        {
-            while (true)
-            {
-                var keyboard = Keyboard.current;
-                if (keyboard != null && (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame || keyboard.spaceKey.wasPressedThisFrame))
-                    yield break;
-                yield return null;
-            }
-        }
         yield return new WaitForSeconds(seconds);
     }
 
@@ -226,7 +221,9 @@ public class CutsceneController : MonoBehaviour
         cutBack.raycastTarget = false;
         cutsceneRoot.SetActive(false);
 
+        // Сразу выключен: не должен мелькать на старте до Opening()
         captionRoot = new GameObject("Caption");
+        captionRoot.SetActive(false);
         captionRoot.transform.SetParent(canvasGo.transform, false);
         var rect = captionRoot.AddComponent<RectTransform>();
         rect.anchorMin = new Vector2(0.12f, 0.08f);
@@ -237,7 +234,6 @@ public class CutsceneController : MonoBehaviour
         back.color = new Color(0f, 0f, 0f, 0.55f);
         back.raycastTarget = false;
         caption = CreateText(captionRoot.transform, 30);
-        captionRoot.SetActive(false);
 
         var hintGo = new GameObject("AimHint");
         hintGo.transform.SetParent(canvasGo.transform, false);
