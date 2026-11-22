@@ -9,6 +9,10 @@ public static class GameEvents
     public static event Action<int> OnShadowCountChanged;
     public static event Action<bool> OnMessageReplied;
     public static event Action OnFinaleStarted;
+    /// <summary>Часы запущены (StartClock) — fallback для таймера телефона.</summary>
+    public static event Action OnClockStarted;
+    /// <summary>Посадка / конец opening (EnableCombat) — основной старт пингов.</summary>
+    public static event Action OnDeskReady;
 
     public static void GhostKilled(int payout) => OnGhostKilled?.Invoke(payout);
     public static void HeroHit() => OnHeroHit?.Invoke();
@@ -17,4 +21,6 @@ public static class GameEvents
     public static void ShadowCountChanged(int count) => OnShadowCountChanged?.Invoke(count);
     public static void MessageReplied(bool positive) => OnMessageReplied?.Invoke(positive);
     public static void FinaleStarted() => OnFinaleStarted?.Invoke();
+    public static void ClockStarted() => OnClockStarted?.Invoke();
+    public static void DeskReady() => OnDeskReady?.Invoke();
 }

@@ -32,6 +32,8 @@ public class Dialogue : MonoBehaviour
     bool panelOpen;
     bool waitingForChoice;
     bool timingStarted;
+    bool deskSeated;
+    bool firstPingLogged;
     float playTime;
     float ignoreSeconds = 8f;
     int relationWarm = 15;
@@ -42,12 +44,15 @@ public class Dialogue : MonoBehaviour
     Text body;
     Text header;
     Text choices;
+    Text tab;
     AudioSource notify;
 
-    /// <summary>Открыт выбор на телефоне — курсор чуть тупеет (MessengerSystem проксирует).</summary>
-    public bool ChoicePending => waitingForChoice && panelOpen && active != null;
+    /// <summary>
+    /// Есть неотвеченный выбор — курсор тупеет уже с приходом сообщения (GDD), не только при открытой панели.
+    /// </summary>
+    public bool ChoicePending => waitingForChoice && active != null;
 
-    /// <summary>Есть непрочитанное/активное входящее (для отладки и индикаторов).</summary>
+    /// <summary>Есть активное входящее (E может открыть панель).</summary>
     public bool HasActiveMessage => active != null;
 
     /// <summary>Последний ответ требовал forced-удар (для боевого агента). Игнор всегда false.</summary>
@@ -62,16 +67,80 @@ public class Dialogue : MonoBehaviour
         notify = gameObject.AddComponent<AudioSource>();
         notify.playOnAwake = false;
         notify.spatialBlend = 0f;
+        Debug.Log($"Dialogue: Awake OK, пингов={pings?.Length ?? 0}, UI={(panel != null ? "есть" : "нет")}");
     }
 
     void OnEnable()
     {
         GameEvents.OnFinaleStarted += HideAll;
+        GameEvents.OnClockStarted += OnClockStarted;
+        GameEvents.OnDeskReady += OnDeskReady;
     }
 
     void OnDisable()
     {
         GameEvents.OnFinaleStarted -= HideAll;
+        GameEvents.OnClockStarted -= OnClockStarted;
+        GameEvents.OnDeskReady -= OnDeskReady;
+    }
+
+    void Start()
+    {
+        // Если подписка опоздала к уже прошедшим сигналам — подхватить состояние GameManager.
+        var gm = GameManager.Instance;
+        if (gm == null) return;
+        if (gm.GameplayActive)
+            OnDeskReady();
+        else if (gm.ClockRunning)
+            OnClockStarted();
+    }
+
+    void OnClockStarted()
+    {
+        // Fallback: часы тикают. Полноценный старт пингов — на DeskReady; здесь только страховка.
+        if (deskSeated) return;
+        BeginTiming("ClockStarted", resetPlayTime: true, seated: false);
+    }
+
+    void OnDeskReady()
+    {
+        // Конец opening / посадка — основной старт. Сбрасываем преждевременный ClockStarted.
+        BeginTiming("DeskReady", resetPlayTime: true, seated: true);
+    }
+
+    void BeginTiming(string reason, bool resetPlayTime, bool seated)
+    {
+        if (timingStarted && deskSeated && seated)
+            return; // Уже сидим за столом — повторный DeskReady игнор.
+
+        if (timingStarted && !resetPlayTime)
+            return;
+
+        if (resetPlayTime)
+        {
+            // Сброс преждевременных пингов (таймер шёл от ClockStarted до посадки).
+            if (timingStarted && !deskSeated && seated)
+            {
+                token++;
+                active = null;
+                waiting.Clear();
+                offered.Clear();
+                waitingForChoice = false;
+                panelOpen = false;
+            }
+            playTime = 0f;
+            firstPingLogged = false;
+        }
+
+        if (!timingStarted)
+            Debug.Log($"Dialogue: таймер пингов стартовал ({reason})");
+        else if (seated)
+            Debug.Log($"Dialogue: таймер пингов сброшен к посадке ({reason})");
+
+        timingStarted = true;
+        if (seated)
+            deskSeated = true;
+        Refresh();
     }
 
     void Update()
@@ -84,23 +153,43 @@ public class Dialogue : MonoBehaviour
         if (gm != null && gm.IsPaused)
             return;
 
-        // Таймер пингов — секунды после посадки (EnableCombat), не от StartClock.
-        if (gm != null && gm.GameplayActive)
+        // Подхват, если события прошли мимо подписки.
+        if (!timingStarted && gm != null)
         {
-            if (!timingStarted)
-                timingStarted = true;
+            if (gm.GameplayActive) OnDeskReady();
+            else if (gm.ClockRunning) OnClockStarted();
+        }
+
+        // Пинги тикают после старта; автоигнор и «боевые» пинги — после посадки (deskSeated),
+        // чтобы mom@25s не сгорел во время плашек интро.
+        if (timingStarted && deskSeated)
+        {
             playTime += Time.deltaTime;
             PollArrivals();
         }
+        else if (timingStarted && !deskSeated && gm != null && gm.Elapsed >= 35f)
+        {
+            // Opening завис / EnableCombat не вызван — всё равно сажаем за стол.
+            Debug.LogWarning("Dialogue: DeskReady не пришёл за 35с после часов — принудительный старт.");
+            OnDeskReady();
+        }
 
+        bool pressedE = false;
         var keyboard = Keyboard.current;
-        if (keyboard == null) return;
+        if (keyboard != null && keyboard.eKey.wasPressedThisFrame)
+            pressedE = true;
+#if ENABLE_LEGACY_INPUT_MANAGER
+        else if (Input.GetKeyDown(KeyCode.E))
+            pressedE = true;
+#endif
 
-        // E: открыть/закрыть только если есть входящее. Без сообщения — ничего.
-        if (keyboard.eKey.wasPressedThisFrame)
+        // E: открыть/закрыть при активном входящем (ChoicePending / HasActiveMessage). Без сообщения — ничего.
+        if (pressedE)
             TogglePhone();
 
         if (!waitingForChoice || !panelOpen || active == null) return;
+        if (keyboard == null) return;
+
         if (active.choices == null || active.choices.Length == 0)
         {
             if (keyboard.enterKey.wasPressedThisFrame || keyboard.numpadEnterKey.wasPressedThisFrame)
@@ -127,9 +216,13 @@ public class Dialogue : MonoBehaviour
     void TogglePhone()
     {
         if (active == null)
+        {
+            Debug.Log("Dialogue: E нажат, но активного сообщения нет.");
             return;
+        }
 
         panelOpen = !panelOpen;
+        Debug.Log($"Dialogue: E → панель {(panelOpen ? "открыта" : "закрыта")} ({active.id})");
         Refresh();
     }
 
@@ -174,6 +267,16 @@ public class Dialogue : MonoBehaviour
             waitingForChoice = next.choices != null && next.choices.Length > 0;
             panelOpen = false;
             token++;
+            if (!firstPingLogged)
+            {
+                firstPingLogged = true;
+                Debug.Log($"Dialogue: первый пинг «{next.id}» от {next.contact} at={next.at:0}s (playTime={playTime:0.0}s). Жми E.");
+            }
+            else
+            {
+                Debug.Log($"Dialogue: пинг «{next.id}» ({next.contact}), E открывает панель.");
+            }
+
             if (notify != null && GeneratedAudio.Notification != null)
                 notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
 
@@ -409,13 +512,21 @@ public class Dialogue : MonoBehaviour
         panelOpen = false;
         waiting.Clear();
         if (panel != null) panel.gameObject.SetActive(false);
+        if (tab != null) tab.gameObject.SetActive(false);
     }
 
     void Refresh()
     {
-        bool show = active != null && panelOpen;
-        if (panel != null) panel.gameObject.SetActive(show);
-        if (!show || active == null) return;
+        bool has = active != null;
+        bool showPanel = has && panelOpen;
+        // Вкладка «входящее», если сообщение есть, а панель ещё не открыта.
+        if (tab != null)
+        {
+            tab.gameObject.SetActive(has && !panelOpen && waitingForChoice);
+            if (has) tab.text = ContactTitle(active.contact) + "\n[E]";
+        }
+        if (panel != null) panel.gameObject.SetActive(showPanel);
+        if (!showPanel || active == null) return;
 
         header.text = ContactTitle(active.contact);
         if (waitingForChoice && active.choices != null && active.choices.Length > 0)
@@ -525,13 +636,25 @@ public class Dialogue : MonoBehaviour
     void BuildUi()
     {
         var canvasGo = new GameObject("PhoneCanvas");
+        canvasGo.transform.SetParent(transform, false);
         var canvas = canvasGo.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 30;
+        // Выше CutsceneCanvas (40), чтобы E/панель не прятались под плашками.
+        canvas.sortingOrder = 60;
         var scaler = canvasGo.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         canvasGo.AddComponent<GraphicRaycaster>();
+
+        tab = MakeText(canvasGo.transform, "IncomingTab", 22, TextAnchor.MiddleCenter);
+        var tabRect = tab.rectTransform;
+        tabRect.anchorMin = new Vector2(1f, 0.5f);
+        tabRect.anchorMax = new Vector2(1f, 0.5f);
+        tabRect.pivot = new Vector2(1f, 0.5f);
+        tabRect.sizeDelta = new Vector2(160f, 72f);
+        tabRect.anchoredPosition = new Vector2(-16f, 0f);
+        tab.color = new Color(0.85f, 0.9f, 0.95f, 0.95f);
+        tab.gameObject.SetActive(false);
 
         var panelGo = new GameObject("PhonePanel");
         panelGo.transform.SetParent(canvasGo.transform, false);

@@ -66,6 +66,8 @@ public class CutsceneController : MonoBehaviour
 
         if (captionRoot != null) captionRoot.SetActive(false);
         if (GameManager.Instance != null) GameManager.Instance.EnableCombat();
+        // Дубль сигнала посадки: даже если EnableCombat уже был true, Dialogue получит DeskReady.
+        GameEvents.DeskReady();
         if (hint != null)
         {
             hint.gameObject.SetActive(true);
