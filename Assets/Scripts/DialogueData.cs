@@ -1,5 +1,8 @@
 using System;
 
+/// <summary>
+/// Старый формат MessengerSystem (threads) — оставлен для совместимости.
+/// </summary>
 [Serializable]
 public class DialogueDatabase
 {
@@ -13,7 +16,7 @@ public class DialogueThread
     public string contactName;
     public float triggerAge;
     public float timeoutSeconds = 25f;
-    public string autoIgnoreReply = "I'm busy.";
+    public string autoIgnoreReply = "I'm busy";
     public DialogueMessage[] messages;
 }
 
@@ -32,4 +35,35 @@ public class DialogueChoice
     public string text;
     public bool isPositive;
     public int nextIndex;
+}
+
+/// <summary>
+/// Форма GDD 15.4 — массив пингов в dialogue.json.
+/// Поле JSON "in" мапится в incoming при загрузке (JsonUtility не ест ключ in).
+/// </summary>
+[Serializable]
+public class DialoguePingFile
+{
+    public DialoguePing[] items;
+}
+
+[Serializable]
+public class DialoguePing
+{
+    public string id;
+    public string contact;
+    public float at;
+    public bool forcedHit = true;
+    public string[] requires;
+    public string incoming;
+    public DialoguePingChoice[] choices;
+}
+
+[Serializable]
+public class DialoguePingChoice
+{
+    public string label;
+    public bool warm;
+    public string reply;
+    public string[] set;
 }

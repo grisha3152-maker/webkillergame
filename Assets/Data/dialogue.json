@@ -1,0 +1,226 @@
+[
+  {
+    "id": "mom_eat",
+    "contact": "mom",
+    "at": 25,
+    "forcedHit": true,
+    "requires": [],
+    "in": "you ate?",
+    "choices": [
+      { "label": "yeah. go sleep", "warm": true, "reply": "soup's in the fridge if you stand up.", "set": ["mom_ate"] },
+      { "label": "busy", "warm": false, "reply": "ok.", "set": [] }
+    ]
+  },
+  {
+    "id": "anya_cinema",
+    "contact": "anya",
+    "at": 45,
+    "forcedHit": true,
+    "requires": [],
+    "in": "they're showing that movie at 8. you in?",
+    "choices": [
+      { "label": "i'll be there", "warm": true, "reply": "front row. don't you dare work through it.", "set": ["anya_yes_cinema"] },
+      { "label": "server's on fire", "warm": false, "reply": "ok.", "set": ["anya_no_cinema"] }
+    ]
+  },
+  {
+    "id": "lev_bench",
+    "contact": "lev",
+    "at": 70,
+    "forcedHit": true,
+    "requires": [],
+    "in": "come down. ten minutes. the bench is free.",
+    "choices": [
+      { "label": "coming", "warm": true, "reply": "i'll hold the spot.", "set": ["lev_bench_yes"] },
+      { "label": "in a wave", "warm": false, "reply": "you always are.", "set": ["lev_bench_no"] }
+    ]
+  },
+  {
+    "id": "desk_441",
+    "contact": "desk",
+    "at": 95,
+    "forcedHit": false,
+    "requires": [],
+    "in": "TICKET 441. northline is down. now.",
+    "choices": [
+      { "label": "on it", "warm": true, "reply": "clock's running.", "set": [] },
+      { "label": "not mine", "warm": false, "reply": "it is now.", "set": [] }
+    ]
+  },
+  {
+    "id": "mom_kitchen",
+    "contact": "mom",
+    "at": 130,
+    "forcedHit": true,
+    "requires": [],
+    "in": "he's loud again. can you come to the kitchen for a bit.",
+    "choices": [
+      { "label": "i'm coming", "warm": true, "reply": "door's open. i turned the light on.", "set": ["mom_kitchen_yes"] },
+      { "label": "i can't leave the screen", "warm": false, "reply": "then don't.", "set": [] }
+    ]
+  },
+  {
+    "id": "anya_second_chance",
+    "contact": "anya",
+    "at": 160,
+    "forcedHit": true,
+    "requires": ["anya_no_cinema"],
+    "in": "last night they're showing it. thursday. yes or no.",
+    "choices": [
+      { "label": "yes", "warm": true, "reply": "ok. this time i'm not joking.", "set": ["anya_yes_cinema"] },
+      { "label": "no", "warm": false, "reply": "got it. i won't keep asking.", "set": ["anya_closed"] }
+    ]
+  },
+  {
+    "id": "anya_it_was_good",
+    "contact": "anya",
+    "at": 175,
+    "forcedHit": true,
+    "requires": ["anya_yes_cinema"],
+    "in": "it was good. you left before the lights came up.",
+    "choices": [
+      { "label": "sorry. i wanted to stay", "warm": true, "reply": "then stay next time. that's the whole trick.", "set": [] },
+      { "label": "had to get back", "warm": false, "reply": "right.", "set": [] }
+    ]
+  },
+  {
+    "id": "lev_walk",
+    "contact": "lev",
+    "at": 210,
+    "forcedHit": true,
+    "requires": [],
+    "in": "last time i ask like a normal person. walk. tonight.",
+    "choices": [
+      { "label": "tonight", "warm": true, "reply": "good. i'll believe you once.", "set": ["lev_walk_yes"] },
+      { "label": "can't", "warm": false, "reply": "then i'm done asking for a while.", "set": [] }
+    ]
+  },
+  {
+    "id": "desk_breach",
+    "contact": "desk",
+    "at": 250,
+    "forcedHit": false,
+    "requires": [],
+    "in": "second breach. you went idle for 40 seconds. explain.",
+    "choices": [
+      { "label": "fixing it", "warm": true, "reply": "don't idle.", "set": [] },
+      { "label": "people were writing", "warm": false, "reply": "not our problem.", "set": [] }
+    ]
+  },
+  {
+    "id": "anya_stay",
+    "contact": "anya",
+    "at": 300,
+    "forcedHit": true,
+    "requires": [],
+    "in": "i need to know if this is a thing or if i'm talking to a screensaver.",
+    "choices": [
+      { "label": "it's a thing. i'm here", "warm": true, "reply": "then act like it when the next message comes.", "set": ["anya_thing"] },
+      { "label": "i don't have room for a thing", "warm": false, "reply": "cool. room's all yours.", "set": ["anya_closed"] }
+    ]
+  },
+  {
+    "id": "mom_meat",
+    "contact": "mom",
+    "at": 340,
+    "forcedHit": true,
+    "requires": [],
+    "in": "got paid. bought actual meat. you don't have to send anything.",
+    "choices": [
+      { "label": "keep it. eat", "warm": true, "reply": "i will. you eat too.", "set": [] },
+      { "label": "busy", "warm": false, "reply": "sure.", "set": [] }
+    ]
+  },
+  {
+    "id": "desk_overnight",
+    "contact": "desk",
+    "at": 390,
+    "forcedHit": false,
+    "requires": [],
+    "in": "overnight window. double rate if you stay.",
+    "choices": [
+      { "label": "i'll stay", "warm": true, "reply": "good. stay online.", "set": [] },
+      { "label": "i'm done for tonight", "warm": false, "reply": "window closes with or without you.", "set": [] }
+    ]
+  },
+  {
+    "id": "mom_health",
+    "contact": "mom",
+    "at": 430,
+    "forcedHit": true,
+    "requires": [],
+    "in": "doctor called. nothing cinematic. i just don't want to sit in the kitchen alone.",
+    "choices": [
+      { "label": "i'm here. talk", "warm": true, "reply": "ok. then i'll talk. you don't even have to answer well.", "set": [] },
+      { "label": "send me the papers later", "warm": false, "reply": "it wasn't about papers.", "set": [] }
+    ]
+  },
+  {
+    "id": "lev_window",
+    "contact": "lev",
+    "at": 470,
+    "forcedHit": true,
+    "requires": ["lev_relation_gt_25"],
+    "in": "saw your window. still blue at this hour.",
+    "choices": [
+      { "label": "come up", "warm": true, "reply": "nah. you come out. i'll be by the door a minute.", "set": [] },
+      { "label": "working", "warm": false, "reply": "wave at the glass then.", "set": [] }
+    ]
+  },
+  {
+    "id": "lev_farewell",
+    "contact": "lev",
+    "at": 470,
+    "forcedHit": false,
+    "requires": ["lev_relation_lte_25"],
+    "in": "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye.",
+    "choices": []
+  },
+  {
+    "id": "anya_kid",
+    "contact": "anya",
+    "at": 520,
+    "forcedHit": true,
+    "requires": ["anya_warm_ge_2"],
+    "in": "we're having a kid. i'm scared and i still want you in the room.",
+    "choices": [
+      { "label": "i'm in the room", "warm": true, "reply": "then stay in it. not just tonight.", "set": ["mila_unlocked"] },
+      { "label": "this week is bad", "warm": false, "reply": "weeks stay bad with you.", "set": ["anya_closed"] }
+    ]
+  },
+  {
+    "id": "anya_almost",
+    "contact": "anya",
+    "at": 520,
+    "forcedHit": true,
+    "requires": ["anya_warm_lt_2"],
+    "in": "i keep almost writing something big. i'm not going to.",
+    "choices": [
+      { "label": "ok", "warm": false, "reply": "yeah.", "set": [] }
+    ]
+  },
+  {
+    "id": "mila_drawing",
+    "contact": "mila",
+    "at": 560,
+    "forcedHit": true,
+    "requires": ["mila_unlocked"],
+    "in": "mom said you're behind the door. i drew the computer. it looks like a monster.",
+    "choices": [
+      { "label": "i'm coming out", "warm": true, "reply": "bring the drawing. i want to see which monster.", "set": [] },
+      { "label": "tell mom i'm busy", "warm": false, "reply": "she said you'd say that.", "set": [] }
+    ]
+  },
+  {
+    "id": "mom_plate",
+    "contact": "mom",
+    "at": 600,
+    "forcedHit": true,
+    "requires": [],
+    "in": "wherever you are. turn the screen off and come eat.",
+    "choices": [
+      { "label": "i'm getting up", "warm": true, "reply": "i'll put a plate.", "set": [] },
+      { "label": "later", "warm": false, "reply": "later is your whole language.", "set": [] }
+    ]
+  }
+]

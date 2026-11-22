@@ -94,10 +94,12 @@ public class CutsceneController : MonoBehaviour
         }
 
         if (captionRoot != null) captionRoot.SetActive(false);
+        // Дубль сигнала посадки: даже если EnableCombat уже был true, Dialogue получит DeskReady.
+        GameEvents.DeskReady();
         if (hint != null)
         {
             hint.gameObject.SetActive(true);
-            hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nQ  —  Messages";
+            hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nE  —  Phone";
         }
     }
 
