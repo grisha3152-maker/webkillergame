@@ -110,22 +110,26 @@ public class RadialAimController : MonoBehaviour
         var keyboard = Keyboard.current;
         if (keyboard == null) return;
 
-        // Нажатие задаёт целевой угол; курсор едет по дуге, не телепортируется.
-        if (keyboard.aKey.wasPressedThisFrame)
+        // Цель задаётся удержанием A/W/D. Без любой из клавиш курсор стоит на месте — не дрейфует к цели.
+        bool holdA = keyboard.aKey.isPressed;
+        bool holdW = keyboard.wKey.isPressed;
+        bool holdD = keyboard.dKey.isPressed;
+        bool holding = holdA || holdW || holdD;
+
+        if (keyboard.aKey.wasPressedThisFrame) FlashSector(AngleLeft);
+        if (keyboard.wKey.wasPressedThisFrame) FlashSector(AngleTop);
+        if (keyboard.dKey.wasPressedThisFrame) FlashSector(AngleRight);
+
+        if (!holding)
         {
-            targetAngle = AngleLeft;
-            FlashSector(AngleLeft);
+            targetAngle = currentAngle;
+            return;
         }
-        if (keyboard.wKey.wasPressedThisFrame)
-        {
-            targetAngle = AngleTop;
-            FlashSector(AngleTop);
-        }
-        if (keyboard.dKey.wasPressedThisFrame)
-        {
-            targetAngle = AngleRight;
-            FlashSector(AngleRight);
-        }
+
+        // При одновременном удержании побеждает последняя в порядке A → W → D.
+        if (holdA) targetAngle = AngleLeft;
+        if (holdW) targetAngle = AngleTop;
+        if (holdD) targetAngle = AngleRight;
 
         float speed = Balance.Data.baseTurnDegreesPerSecond * drag * (ChoiceIsOpen() ? Balance.Data.turnAfterPhone : 1f);
         // Углы 0..180: MoveTowards всегда идёт через верх, низа нет.
