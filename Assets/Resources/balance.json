@@ -1,6 +1,6 @@
 {
   "playSeconds": 480,
-  "hitRadiusInHeroWidths": 3.0,
+  "hitRadiusInHeroWidths": 0.3,
   "comboSplashRadiusInBodyWidths": 1.5,
   "comboSplashMaxExtraKills": 2,
   "coneDegrees": 56,
