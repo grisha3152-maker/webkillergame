@@ -25,6 +25,14 @@ public class RadialAimController : MonoBehaviour
     float sectorTimer;
     float sectorDrawAngle = AngleTop;
 
+    // Комбо удара: Space выбирает цель, Z/X/C добивают. Длина 2–4 кидается в момент старта удара (не при спавне).
+    static readonly char[] ComboPool = { 'Z', 'X', 'C' };
+    Monster comboTarget;
+    char[] comboKeys;
+    int comboIndex;
+    int comboPayout;
+    bool comboActive;
+
     void Start()
     {
         Balance.EnsureLoaded();
@@ -65,6 +73,8 @@ public class RadialAimController : MonoBehaviour
         if (!combat)
         {
             if (sector != null) sector.enabled = false;
+            // Бой выключен — активное комбо сбрасываем без вспышки.
+            if (comboActive) AbortCombo(flashMiss: false);
             return;
         }
 
@@ -84,9 +94,14 @@ public class RadialAimController : MonoBehaviour
             }
         }
 
-        var keyboard = Keyboard.current;
-        if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
-            Attack(origin);
+        if (comboActive)
+            TickCombo(origin);
+        else
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
+                BeginAttack(origin);
+        }
     }
 
     void ReadAim()
@@ -116,18 +131,105 @@ public class RadialAimController : MonoBehaviour
         currentAngle = Mathf.MoveTowards(currentAngle, targetAngle, speed * Time.deltaTime);
     }
 
-    void Attack(Vector2 origin)
+    void BeginAttack(Vector2 origin)
     {
-        float hitRadius = HitRadius();
-        float halfCone = Balance.Data.SectorHalfAngle;
-        bool clearAll = Balance.Data.hitClearsAllInCone;
+        // Пока комбо на одном призраке — новый Space / другая цель игнорируются (см. TickCombo).
+        if (comboActive) return;
+
+        Monster best = FindBestTarget(origin);
+        if (best == null)
+        {
+            // Промах — только подсветка сектора, без штрафа.
+            FlashSector(currentAngle);
+            return;
+        }
+
         int payout = Balance.Data.dollarsPerKill;
         if (GameManager.Instance != null)
             payout = GameManager.Instance.PayoutForCurrentAge();
 
+        // Длина и буквы комбо выбираются здесь, в момент старта удара (не при спавне призрака).
+        comboKeys = RollComboKeys();
+        comboIndex = 0;
+        comboPayout = payout;
+        comboTarget = best;
+        comboActive = true;
+        best.ShowHitCombo(comboKeys, comboIndex);
+        GameEvents.HitComboStarted();
+    }
+
+    void TickCombo(Vector2 origin)
+    {
+        // Цель умерла / ушла / уничтожена — срыв как промах.
+        if (comboTarget == null || !comboTarget.Alive)
+        {
+            AbortCombo(flashMiss: true);
+            return;
+        }
+
+        float hitRadius = HitRadius();
+        if (!comboTarget.IsWithinHitRadius(origin, hitRadius))
+        {
+            AbortCombo(flashMiss: true);
+            return;
+        }
+
+        // Space во время комбо не начинает новый удар и не меняет цель — просто игнорируется.
+        var keyboard = Keyboard.current;
+        if (keyboard == null) return;
+
+        char? pressed = ReadComboKey(keyboard);
+        if (pressed == null) return;
+
+        if (pressed.Value != comboKeys[comboIndex])
+        {
+            AbortCombo(flashMiss: true);
+            return;
+        }
+
+        comboIndex++;
+        if (comboIndex >= comboKeys.Length)
+        {
+            Monster target = comboTarget;
+            int payout = comboPayout;
+            ClearComboState(clearLabel: false);
+            if (target != null && target.Alive)
+                target.Kill(payout);
+            GameEvents.HitComboSucceeded();
+            return;
+        }
+
+        comboTarget.ShowHitCombo(comboKeys, comboIndex);
+    }
+
+    void AbortCombo(bool flashMiss)
+    {
+        if (comboTarget != null)
+            comboTarget.ClearHitCombo();
+        ClearComboState(clearLabel: false);
+        if (flashMiss)
+            FlashSector(currentAngle);
+        GameEvents.HitComboFailed();
+    }
+
+    void ClearComboState(bool clearLabel)
+    {
+        if (clearLabel && comboTarget != null)
+            comboTarget.ClearHitCombo();
+        comboActive = false;
+        comboTarget = null;
+        comboKeys = null;
+        comboIndex = 0;
+        comboPayout = 0;
+    }
+
+    /// <summary>Один лучший призрак в конусе и hitRadius. Комбо всегда на одну цель (hitClearsAllInCone не мульти-килл).</summary>
+    Monster FindBestTarget(Vector2 origin)
+    {
+        float hitRadius = HitRadius();
+        float halfCone = Balance.Data.SectorHalfAngle;
         Monster best = null;
         float bestScore = float.MaxValue;
-        int killed = 0;
         var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
         for (int i = 0; i < monsters.Length; i++)
         {
@@ -135,37 +237,37 @@ public class RadialAimController : MonoBehaviour
             if (monster == null || !monster.Alive) continue;
             Vector2 to = (Vector2)monster.transform.position - origin;
             float dist = to.magnitude;
-            // Удар только внутри радиуса 1.5 ширины героя, не по всей дуге прицела.
+            // Удар только внутри hitRadius из balance.json, не по всей дуге прицела.
             if (dist > hitRadius || dist < 0.01f) continue;
             float angle = Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg;
             float delta = Mathf.Abs(Mathf.DeltaAngle(currentAngle, angle));
             if (delta > halfCone) continue;
-
-            if (clearAll)
+            float score = delta * 4f + dist;
+            if (score < bestScore)
             {
-                monster.Kill(payout);
-                killed++;
-            }
-            else
-            {
-                float score = delta * 4f + dist;
-                if (score < bestScore)
-                {
-                    bestScore = score;
-                    best = monster;
-                }
+                bestScore = score;
+                best = monster;
             }
         }
 
-        if (!clearAll && best != null)
-        {
-            best.Kill(payout);
-            killed = 1;
-        }
+        return best;
+    }
 
-        // Промах — только подсветка сектора, без штрафа.
-        if (killed == 0)
-            FlashSector(currentAngle);
+    static char[] RollComboKeys()
+    {
+        int length = Random.Range(2, 5); // 2, 3 или 4
+        var keys = new char[length];
+        for (int i = 0; i < length; i++)
+            keys[i] = ComboPool[Random.Range(0, ComboPool.Length)];
+        return keys;
+    }
+
+    static char? ReadComboKey(Keyboard keyboard)
+    {
+        if (keyboard.zKey.wasPressedThisFrame) return 'Z';
+        if (keyboard.xKey.wasPressedThisFrame) return 'X';
+        if (keyboard.cKey.wasPressedThisFrame) return 'C';
+        return null;
     }
 
     void OnHeroHit()

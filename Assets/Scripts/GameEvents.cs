@@ -11,6 +11,10 @@ public static class GameEvents
     public static event Action<bool> OnMessageReplied;
     public static event Action OnFinaleStarted;
     public static event Action OnComboRestored;
+    // Удар Z/X/C: старт / срыв / успех последовательности над одним призраком.
+    public static event Action OnHitComboStarted;
+    public static event Action OnHitComboFailed;
+    public static event Action OnHitComboSucceeded;
 
     public static void GhostKilled(int payout) => OnGhostKilled?.Invoke(payout);
 
@@ -27,4 +31,7 @@ public static class GameEvents
     public static void MessageReplied(bool positive) => OnMessageReplied?.Invoke(positive);
     public static void FinaleStarted() => OnFinaleStarted?.Invoke();
     public static void ComboRestored() => OnComboRestored?.Invoke();
+    public static void HitComboStarted() => OnHitComboStarted?.Invoke();
+    public static void HitComboFailed() => OnHitComboFailed?.Invoke();
+    public static void HitComboSucceeded() => OnHitComboSucceeded?.Invoke();
 }
