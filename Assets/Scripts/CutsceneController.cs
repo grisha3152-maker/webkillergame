@@ -11,6 +11,8 @@ public class CutsceneController : MonoBehaviour
     Text paused;
     GameObject captionRoot;
     bool ending;
+    // true после нормального конца интро или пропуска по U
+    bool openingDone;
     int kills;
 
     void Start()
@@ -34,9 +36,18 @@ public class CutsceneController : MonoBehaviour
         if (paused != null && GameManager.Instance != null)
             paused.gameObject.SetActive(GameManager.Instance.IsPaused && !ending);
 
-        if (!ending) return;
         var keyboard = Keyboard.current;
-        if (keyboard != null && keyboard.rKey.wasPressedThisFrame)
+        if (keyboard == null) return;
+
+        // Пропуск стартовой плашки / интро по U — тот же переход в геймплей, что после нормального закрытия
+        if (!openingDone && !ending && keyboard.uKey.wasPressedThisFrame)
+        {
+            SkipOpening();
+            return;
+        }
+
+        if (!ending) return;
+        if (keyboard.rKey.wasPressedThisFrame)
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
     }
 
@@ -44,8 +55,35 @@ public class CutsceneController : MonoBehaviour
     {
         if (ending) return;
         ending = true;
+        openingDone = true;
         StopAllCoroutines();
         StartCoroutine(Ending(quiet));
+    }
+
+    // Скрыть плашку и продолжить игру как после полного интро
+    void SkipOpening()
+    {
+        if (openingDone || ending) return;
+        openingDone = true;
+        StopAllCoroutines();
+        FinishOpening();
+    }
+
+    // Общий хвост: часы, бой, подсказка, плашка скрыта
+    void FinishOpening()
+    {
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.StartClock();
+            GameManager.Instance.EnableCombat();
+        }
+
+        if (captionRoot != null) captionRoot.SetActive(false);
+        if (hint != null)
+        {
+            hint.gameObject.SetActive(true);
+            hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nQ  —  Messages";
+        }
     }
 
     IEnumerator Opening()
@@ -64,13 +102,9 @@ public class CutsceneController : MonoBehaviour
         yield return Show("He sits down. He does not turn around.", 3.4f);
         yield return Show("When your server is under attack, you must know how to defend it. To destroy the [****] attacks, aim at them and use your defense (press Space). Remember, the most important thing is our servers. May the grind be with you.", 11f);
 
-        if (captionRoot != null) captionRoot.SetActive(false);
-        if (GameManager.Instance != null) GameManager.Instance.EnableCombat();
-        if (hint != null)
-        {
-            hint.gameObject.SetActive(true);
-            hint.text = "W / A / D  —  Aim\nSpace  —  Defend\nQ  —  Messages";
-        }
+        // На U корутину уже остановил SkipOpening — сюда доходим только при нормальном просмотре
+        openingDone = true;
+        FinishOpening();
     }
 
     void CountKill(int _)
