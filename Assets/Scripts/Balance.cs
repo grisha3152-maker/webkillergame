@@ -77,6 +77,10 @@ public class BalanceData
     public EraBalance[] eras;
     public int[] roomThresholds = { 0, 200, 500, 900, 1400, 2200 };
     public SpawnWeights spawnWeights = new SpawnWeights();
+    /// <summary>К концу забега ortho = start × этот коэффициент (меньше = ближе).</summary>
+    public float cameraEndSizeFactor = 0.86f;
+    /// <summary>Скачок tension назад (0..1) при входящем пинге — чуть zoom out.</summary>
+    public float cameraPingZoomOut = 0.08f;
 
     public float SectorHalfAngle => coneDegrees * 0.5f;
 
@@ -109,6 +113,8 @@ public class BalanceData
         if (dollarsPerKill <= 0) dollarsPerKill = 10;
         if (maxShadows <= 0) maxShadows = 5;
         if (turnFloor <= 0f) turnFloor = 0.35f;
+        if (cameraEndSizeFactor <= 0f || cameraEndSizeFactor >= 1f) cameraEndSizeFactor = 0.86f;
+        if (cameraPingZoomOut <= 0f) cameraPingZoomOut = 0.08f;
     }
 
     public static BalanceData CreateDefault()
