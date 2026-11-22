@@ -216,9 +216,9 @@ public class Monster : MonoBehaviour
         comboLabel = go.AddComponent<TextMesh>();
         comboLabel.anchor = TextAnchor.LowerCenter;
         comboLabel.alignment = TextAlignment.Center;
-        // Было 22/64, затем 11/32 — всё ещё крупно; ещё ~вдвое: ~5.5/16.
-        comboLabel.characterSize = 5.5f;
-        comboLabel.fontSize = 16;
+        // Было 22/64 → 11/32 → 5.5/16 — ещё ~вдвое: ~2.75/8.
+        comboLabel.characterSize = 2.75f;
+        comboLabel.fontSize = 8;
         comboLabel.fontStyle = FontStyle.Bold;
         comboLabel.color = new Color(1f, 0.92f, 0.35f, 1f);
         var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
