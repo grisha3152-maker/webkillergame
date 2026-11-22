@@ -47,7 +47,7 @@ public static class Balance
 public class BalanceData
 {
     public float playSeconds = 480f;
-    public float hitRadiusInHeroWidths = 1.5f;
+    public float hitRadiusInHeroWidths = 3f;
     /// <summary>Радиус splash после успешного комбо = ширина тела убитого × это число (стиль hitRadius).</summary>
     public float comboSplashRadiusInBodyWidths = 1.5f;
     /// <summary>Сколько ещё призраков убивает splash вокруг успешной цели комбо (ближайшие).</summary>
@@ -101,7 +101,7 @@ public class BalanceData
         if (familyContacts == null || familyContacts.Length == 0)
             familyContacts = new[] { "mom", "anya", "lev", "mila" };
         if (coneDegrees <= 0f) coneDegrees = 56f;
-        if (hitRadiusInHeroWidths <= 0f) hitRadiusInHeroWidths = 1.5f;
+        if (hitRadiusInHeroWidths <= 0f) hitRadiusInHeroWidths = 3f;
         if (comboSplashRadiusInBodyWidths <= 0f) comboSplashRadiusInBodyWidths = 1.5f;
         if (comboSplashMaxExtraKills < 0) comboSplashMaxExtraKills = 0;
         if (baseTurnDegreesPerSecond <= 0f) baseTurnDegreesPerSecond = 240f;
