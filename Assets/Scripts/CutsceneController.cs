@@ -320,7 +320,7 @@ public class CutsceneController : MonoBehaviour
         if (aliveLine != null) aliveLine.text = "и";
         yield return new WaitForSeconds(1.6f);
 
-        // Чёрный экран → стоило / оно / того?
+        // Чёрный экран → was / it / worth / it?
         HideAliveLines();
         SetAliveBlack(true);
         yield return new WaitForSeconds(0.4f);
@@ -328,7 +328,7 @@ public class CutsceneController : MonoBehaviour
         if (aliveLine != null)
         {
             aliveLine.gameObject.SetActive(true);
-            aliveLine.text = "стоило";
+            aliveLine.text = "was";
         }
         if (aliveSpacePlaque != null)
         {
@@ -340,13 +340,17 @@ public class CutsceneController : MonoBehaviour
         if (aliveLineBelow != null)
         {
             aliveLineBelow.gameObject.SetActive(true);
-            aliveLineBelow.text = "оно";
+            aliveLineBelow.text = "it";
         }
         yield return WaitForSpace();
 
-        // «того?» под «оно»; Space больше не нужен.
         if (aliveLineBelow != null)
-            aliveLineBelow.text = "оно\nтого?";
+            aliveLineBelow.text = "it\nworth";
+        yield return WaitForSpace();
+
+        // «it?» under «worth»; Space no longer needed.
+        if (aliveLineBelow != null)
+            aliveLineBelow.text = "it\nworth\nit?";
         if (aliveSpacePlaque != null)
         {
             aliveSpacePlaque.text = "Press R";
