@@ -1,4 +1,3 @@
-using System.Text;
 using UnityEngine;
 
 public class Monster : MonoBehaviour
@@ -8,6 +7,14 @@ public class Monster : MonoBehaviour
     [SerializeField] private float endSpeed = 35f;    // Медленное подкрадывание у игрока
     [SerializeField] private bool digitalTint = true;
 
+    /// <summary>Базовый масштаб букв комбо над головой.</summary>
+    const float ComboLetterBaseScale = 1f;
+    /// <summary>Текущая клавиша чуть крупнее остальных.</summary>
+    const float ComboActiveScaleMul = 1.28f;
+    /// <summary>Шаг между центрами букв (world units при PPU 16).</summary>
+    const float ComboLetterSpacing = 34f;
+    const int ComboSortingOrder = 40;
+
     private Transform playerTransform;
     private SpriteRenderer spriteRenderer;
     private Collider2D bodyCollider;
@@ -15,7 +22,10 @@ public class Monster : MonoBehaviour
     private bool resolved;
     /// <summary>Заморожен захватом HitCombo (Space): не летит к герою, пока комбо активно.</summary>
     private bool movementFrozen;
-    private TextMesh comboLabel;
+
+    /// <summary>Корень ряда спрайтов Z/X/C над головой (вместо Legacy TextMesh).</summary>
+    private Transform comboRoot;
+    private SpriteRenderer[] comboLetterRenderers;
     private char[] comboKeys;
     private int comboNextIndex = -1;
 
@@ -98,7 +108,7 @@ public class Monster : MonoBehaviour
         // Захват комбо: стоим на месте, лейбл обновляем, до героя не летим.
         if (movementFrozen)
         {
-            if (comboLabel != null && comboNextIndex >= 0)
+            if (comboRoot != null && comboNextIndex >= 0)
                 PlaceComboLabel();
             TryReach();
             return;
@@ -126,7 +136,7 @@ public class Monster : MonoBehaviour
         }
 
         // Лейбл комбо держим над головой, пока удар активен.
-        if (comboLabel != null && comboNextIndex >= 0)
+        if (comboRoot != null && comboNextIndex >= 0)
             PlaceComboLabel();
 
         TryReach();
@@ -193,7 +203,7 @@ public class Monster : MonoBehaviour
         comboKeys = keys;
         comboNextIndex = nextIndex;
         EnsureComboLabel();
-        RefreshComboText();
+        RefreshComboSprites();
         PlaceComboLabel();
     }
 
@@ -201,78 +211,120 @@ public class Monster : MonoBehaviour
     {
         comboKeys = null;
         comboNextIndex = -1;
-        if (comboLabel != null)
+        if (comboRoot != null)
         {
-            Destroy(comboLabel.gameObject);
-            comboLabel = null;
+            Destroy(comboRoot.gameObject);
+            comboRoot = null;
+            comboLetterRenderers = null;
         }
     }
 
     void EnsureComboLabel()
     {
-        if (comboLabel != null) return;
-        var go = new GameObject("HitComboLabel");
+        if (comboRoot != null) return;
+
+        var go = new GameObject("HitComboLetters");
         go.transform.SetParent(transform, false);
-        comboLabel = go.AddComponent<TextMesh>();
-        comboLabel.anchor = TextAnchor.LowerCenter;
-        comboLabel.alignment = TextAlignment.Center;
-        // Было 22/64 → 11/32 → 5.5/16 — ещё ~вдвое: ~2.75/8.
-        comboLabel.characterSize = 2.75f;
-        comboLabel.fontSize = 8;
-        comboLabel.fontStyle = FontStyle.Bold;
-        comboLabel.color = new Color(1f, 0.92f, 0.35f, 1f);
-        // ZXC combo — builtin LegacyRuntime (не m5x7; пиксельный шрифт остаётся у title/phone/mutters/income).
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font != null) comboLabel.font = font;
-        var renderer = go.GetComponent<MeshRenderer>();
-        if (renderer != null) renderer.sortingOrder = 40;
+        comboRoot = go.transform;
+        comboLetterRenderers = null;
     }
 
-    void RefreshComboText()
+    /// <summary>
+    /// Обновить спрайты: текущая клавиша — полный цвет + крупнее;
+    /// остальные — grayscale / низкая насыщенность, обычный масштаб.
+    /// </summary>
+    void RefreshComboSprites()
     {
-        if (comboLabel == null || comboKeys == null || comboKeys.Length == 0)
+        if (comboRoot == null) return;
+
+        if (comboKeys == null || comboKeys.Length == 0)
         {
-            if (comboLabel != null) comboLabel.text = string.Empty;
+            if (comboLetterRenderers != null)
+            {
+                for (int i = 0; i < comboLetterRenderers.Length; i++)
+                {
+                    if (comboLetterRenderers[i] != null)
+                        comboLetterRenderers[i].enabled = false;
+                }
+            }
             return;
         }
 
-        // Простой world-space TextMesh: текущая клавиша в [ ], остальные через пробел.
-        var sb = new StringBuilder(comboKeys.Length * 4);
+        EnsureLetterRendererCount(comboKeys.Length);
+
+        float totalWidth = (comboKeys.Length - 1) * ComboLetterSpacing;
+        float startX = -totalWidth * 0.5f;
+
         for (int i = 0; i < comboKeys.Length; i++)
         {
-            if (i > 0) sb.Append(' ');
-            if (i == comboNextIndex)
+            SpriteRenderer sr = comboLetterRenderers[i];
+            bool isNext = i == comboNextIndex;
+            Sprite sprite = ComboLetterSprites.Get(comboKeys[i], saturated: isNext);
+
+            // Если grayscale-текстура недоступна, Get всё равно вернёт цветной — гасим насыщенность тинтом.
+            if (sprite == null)
             {
-                sb.Append('[');
-                sb.Append(comboKeys[i]);
-                sb.Append(']');
+                sr.enabled = false;
+                continue;
             }
-            else if (i < comboNextIndex)
+
+            sr.enabled = true;
+            sr.sprite = sprite;
+            sr.sortingOrder = ComboSortingOrder + (isNext ? 1 : 0);
+            // Grayscale уже в текстуре; тинт — только запасной путь, если серый ассет = цветной.
+            Sprite colorSprite = ComboLetterSprites.Get(comboKeys[i], saturated: true);
+            bool grayFallback = !isNext && ReferenceEquals(sprite, colorSprite);
+            sr.color = grayFallback
+                ? new Color(0.55f, 0.55f, 0.55f, 0.9f)
+                : Color.white;
+
+            float scale = ComboLetterBaseScale * (isNext ? ComboActiveScaleMul : 1f);
+            sr.transform.localScale = new Vector3(scale, scale, 1f);
+            sr.transform.localPosition = new Vector3(startX + i * ComboLetterSpacing, 0f, 0f);
+        }
+    }
+
+    void EnsureLetterRendererCount(int count)
+    {
+        if (comboLetterRenderers != null && comboLetterRenderers.Length == count)
+            return;
+
+        // Пересоздаём дочерние SpriteRenderer под длину ряда (2–4).
+        if (comboLetterRenderers != null)
+        {
+            for (int i = 0; i < comboLetterRenderers.Length; i++)
             {
-                sb.Append('_');
-            }
-            else
-            {
-                sb.Append(comboKeys[i]);
+                if (comboLetterRenderers[i] != null)
+                    Destroy(comboLetterRenderers[i].gameObject);
             }
         }
 
-        comboLabel.text = sb.ToString();
+        comboLetterRenderers = new SpriteRenderer[count];
+        for (int i = 0; i < count; i++)
+        {
+            var letterGo = new GameObject("ComboLetter_" + i);
+            letterGo.transform.SetParent(comboRoot, false);
+            var sr = letterGo.AddComponent<SpriteRenderer>();
+            sr.sortingOrder = ComboSortingOrder;
+            comboLetterRenderers[i] = sr;
+        }
     }
 
     void PlaceComboLabel()
     {
-        if (comboLabel == null) return;
+        if (comboRoot == null) return;
         float top = spriteRenderer != null ? spriteRenderer.bounds.max.y : transform.position.y + 40f;
-        comboLabel.transform.position = new Vector3(transform.position.x, top + 18f, 0f);
+        // Ряд букв чуть выше макушки призрака (как прежний TextMesh +18).
+        comboRoot.position = new Vector3(transform.position.x, top + 18f, 0f);
     }
 
     void OnDestroy()
     {
-        if (comboLabel != null)
+        if (comboRoot != null)
         {
-            Destroy(comboLabel.gameObject);
-            comboLabel = null;
+            Destroy(comboRoot.gameObject);
+            comboRoot = null;
+            comboLetterRenderers = null;
         }
     }
 }
