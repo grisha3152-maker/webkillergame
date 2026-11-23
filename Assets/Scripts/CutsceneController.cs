@@ -165,18 +165,13 @@ public class CutsceneController : MonoBehaviour
         if (titleLabel != null) titleLabel.gameObject.SetActive(false);
         if (pressSpaceLabel != null) pressSpaceLabel.gameObject.SetActive(false);
 
-        // Подгоняем высоту половинок под реальный canvas (ref 1080 → half 540).
+        // Высота уже задана якорями 50/50 — travel берём из реальной высоты панели.
+        Canvas.ForceUpdateCanvases();
         float halfH = 540f;
-        if (titleRoot != null)
-        {
-            var rootRect = titleRoot.GetComponent<RectTransform>();
-            if (rootRect != null && rootRect.rect.height > 1f)
-                halfH = rootRect.rect.height * 0.5f;
-        }
-        if (titleTopHalf != null)
-            titleTopHalf.sizeDelta = new Vector2(titleTopHalf.sizeDelta.x, halfH);
-        if (titleBottomHalf != null)
-            titleBottomHalf.sizeDelta = new Vector2(titleBottomHalf.sizeDelta.x, halfH);
+        if (titleTopHalf != null && titleTopHalf.rect.height > 1f)
+            halfH = titleTopHalf.rect.height;
+        else if (titleBottomHalf != null && titleBottomHalf.rect.height > 1f)
+            halfH = titleBottomHalf.rect.height;
 
         float travel = halfH + 8f;
         Vector2 topStart = titleTopHalf != null ? titleTopHalf.anchoredPosition : Vector2.zero;
@@ -385,29 +380,35 @@ public class CutsceneController : MonoBehaviour
         titleRoot.SetActive(false);
     }
 
-    // Половинки с пивотом у линии разреза — сдвиг anchoredPosition даёт чистый wipe.
+    // Половинки на 50% высоты с швом по центру; пивот у внешнего края — wipe через anchoredPosition.
+    // Фиксированные 540px оставляли щель при canvas выше ref 1080 (match width / узкий экран).
     static RectTransform MakeHalfPanel(Transform parent, string name, bool top)
     {
+        // Небольшой нахлёст на шве — без щели при нечётной высоте / субпикселях.
+        const float seamOverlap = 2f;
+
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         var rect = go.AddComponent<RectTransform>();
         if (top)
         {
-            // Верхняя: якорь по верху экрана, пивот у нижнего края панели.
-            rect.anchorMin = new Vector2(0f, 1f);
+            // Верхняя: от центра до верха; пивот у верха (уезжает вверх при wipe).
+            rect.anchorMin = new Vector2(0f, 0.5f);
             rect.anchorMax = new Vector2(1f, 1f);
             rect.pivot = new Vector2(0.5f, 1f);
-            rect.sizeDelta = new Vector2(0f, 540f);
-            rect.anchoredPosition = Vector2.zero;
+            // offsetMin.y < 0 — панель чуть ниже центра (нахлёст на шов).
+            rect.offsetMin = new Vector2(0f, -seamOverlap);
+            rect.offsetMax = Vector2.zero;
         }
         else
         {
-            // Нижняя: якорь по низу, пивот у верхнего края панели.
+            // Нижняя: от низа до центра; пивот у низа (уезжает вниз при wipe).
             rect.anchorMin = new Vector2(0f, 0f);
-            rect.anchorMax = new Vector2(1f, 0f);
+            rect.anchorMax = new Vector2(1f, 0.5f);
             rect.pivot = new Vector2(0.5f, 0f);
-            rect.sizeDelta = new Vector2(0f, 540f);
-            rect.anchoredPosition = Vector2.zero;
+            // offsetMax.y > 0 — панель чуть выше центра (нахлёст на шов).
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = new Vector2(0f, seamOverlap);
         }
         var image = go.AddComponent<Image>();
         image.color = Color.black;
