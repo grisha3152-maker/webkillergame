@@ -7,7 +7,7 @@ using UnityEngine;
 public static class ComboLetterSprites
 {
     const string ResourceFolder = "Sprites/Combo/";
-    /// <summary>PPU: буква ~450px → ~28 world-units при 16 (масштаб призрака ~58).</summary>
+    /// <summary>PPU fallback: ~1280px → ~80 world-units при 16; визуальный размер режется ComboLetterBaseScale в Monster.</summary>
     const float PixelsPerUnit = 16f;
 
     static readonly Dictionary<char, Sprite> ColorSprites = new Dictionary<char, Sprite>();
