@@ -11,23 +11,32 @@ public class CutsceneController : MonoBehaviour
     Text paused;
     // Плашки captionRoot — только для ending; стартовый дисклеймер/тексты убраны
     GameObject captionRoot;
-    // Корневой хук под будущую анимацию катсцены (сейчас — чёрный экран-заглушка)
-    GameObject cutsceneRoot;
+    // Титульный сплэш: чёрный экран + «ghost clicker» + wipe в бой
+    GameObject titleRoot;
+    RectTransform titleTopHalf;
+    RectTransform titleBottomHalf;
+    Text titleLabel;
+    Text pressSpaceLabel;
+    AudioSource titleAudio;
     bool ending;
-    // true после нормального конца заглушки или пропуска по U
+    // true после wipe / пропуска по U
     bool openingDone;
-    // true, пока играет стартовая катсцена-заглушка
+    // true, пока титул/wipe ещё на экране
     bool cutscenePlaying;
-    /// <summary>Флаг «cutscene playing» — для будущей анимации и отладки.</summary>
+    /// <summary>Флаг «cutscene playing» — титул или wipe, бой ещё не включён.</summary>
     public bool IsCutscenePlaying => cutscenePlaying;
     int kills;
 
-    // Длительность placeholder-катсцены до анимации
-    const float PlaceholderSeconds = 2.5f;
+    // Задержка до появления PRESS SPACE
+    const float PressSpaceDelay = 2f;
+    // Длительность горизонтального разъезда половинок
+    const float WipeSeconds = 0.9f;
 
     void Start()
     {
         BuildUi();
+        // Титул с первого кадра — без вспышки комнаты до Opening().
+        if (titleRoot != null) titleRoot.SetActive(true);
         StartCoroutine(Opening());
     }
 
@@ -49,7 +58,7 @@ public class CutsceneController : MonoBehaviour
         var keyboard = Keyboard.current;
         if (keyboard == null) return;
 
-        // Пропуск стартовой катсцены-заглушки по U — тот же переход в геймплей, что после нормального конца
+        // Пропуск титула по U — сразу в геймплей без wipe (отладка / старый хоткей)
         if (!openingDone && !ending && keyboard.uKey.wasPressedThisFrame)
         {
             SkipOpening();
@@ -68,11 +77,11 @@ public class CutsceneController : MonoBehaviour
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
-        HideCutsceneStub();
+        HideTitleSplash();
         StartCoroutine(Ending(quiet));
     }
 
-    // Скрыть заглушку и продолжить игру как после полного интро
+    // Скрыть титул и продолжить игру как после полного интро
     void SkipOpening()
     {
         if (openingDone || ending) return;
@@ -82,10 +91,10 @@ public class CutsceneController : MonoBehaviour
         FinishOpening();
     }
 
-    // Общий хвост после интро/катсцены: часы, бой, подсказка, заглушка скрыта
+    // Общий хвост после титула: часы, бой, подсказка, сплэш скрыт
     void FinishOpening()
     {
-        HideCutsceneStub();
+        HideTitleSplash();
 
         if (GameManager.Instance != null)
         {
@@ -103,33 +112,95 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    void HideCutsceneStub()
+    void HideTitleSplash()
     {
         cutscenePlaying = false;
-        if (cutsceneRoot != null) cutsceneRoot.SetActive(false);
+        if (titleRoot != null) titleRoot.SetActive(false);
     }
 
-    // Стартовая катсцена: ТОЛЬКО заглушка (чёрный CutsceneRoot). Никаких дисклеймеров/текстовых плашек.
-    // Строки вроде "This story deals…" / "He closes the door." здесь больше не вызываются — они остались только на main до merge PR.
+    // Титул: чёрный экран → «ghost clicker» → через 2с PRESS SPACE (+клик) → Space → wipe → бой.
+    // Старые плашки/дисклеймер здесь не показываются — игрок не застревает за ними.
     IEnumerator Opening()
     {
         cutscenePlaying = true;
-        // Плашки гарантированно выключены на всём старте
         if (captionRoot != null) captionRoot.SetActive(false);
         if (caption != null) caption.text = string.Empty;
-        if (cutsceneRoot != null) cutsceneRoot.SetActive(true);
+        if (titleRoot != null) titleRoot.SetActive(true);
+        if (pressSpaceLabel != null) pressSpaceLabel.gameObject.SetActive(false);
 
+        // Ждём появления подсказки
         float t = 0f;
-        while (t < PlaceholderSeconds)
+        while (t < PressSpaceDelay)
         {
-            // На U корутину остановит SkipOpening — сюда доходим только при нормальном просмотре
             if (openingDone) yield break;
             t += Time.deltaTime;
             yield return null;
         }
 
-        openingDone = true;
-        FinishOpening();
+        if (openingDone) yield break;
+
+        if (pressSpaceLabel != null)
+            pressSpaceLabel.gameObject.SetActive(true);
+        PlayPressSpaceSound();
+
+        // Ждём Space (бой ещё выключен — RadialAim Space не перехватит)
+        while (!openingDone)
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
+            {
+                yield return WipeReveal();
+                if (openingDone) yield break;
+                openingDone = true;
+                FinishOpening();
+                yield break;
+            }
+            yield return null;
+        }
+    }
+
+    // Верхняя половина уезжает вверх, нижняя — вниз, под ними уже SampleScene / бой.
+    IEnumerator WipeReveal()
+    {
+        if (titleLabel != null) titleLabel.gameObject.SetActive(false);
+        if (pressSpaceLabel != null) pressSpaceLabel.gameObject.SetActive(false);
+
+        // Подгоняем высоту половинок под реальный canvas (ref 1080 → half 540).
+        float halfH = 540f;
+        if (titleRoot != null)
+        {
+            var rootRect = titleRoot.GetComponent<RectTransform>();
+            if (rootRect != null && rootRect.rect.height > 1f)
+                halfH = rootRect.rect.height * 0.5f;
+        }
+        if (titleTopHalf != null)
+            titleTopHalf.sizeDelta = new Vector2(titleTopHalf.sizeDelta.x, halfH);
+        if (titleBottomHalf != null)
+            titleBottomHalf.sizeDelta = new Vector2(titleBottomHalf.sizeDelta.x, halfH);
+
+        float travel = halfH + 8f;
+        Vector2 topStart = titleTopHalf != null ? titleTopHalf.anchoredPosition : Vector2.zero;
+        Vector2 bottomStart = titleBottomHalf != null ? titleBottomHalf.anchoredPosition : Vector2.zero;
+
+        float t = 0f;
+        while (t < WipeSeconds)
+        {
+            if (openingDone) yield break;
+            t += Time.deltaTime;
+            float u = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / WipeSeconds));
+            // Top: пивот у верха — +Y уезжает за край; Bottom: пивот у низа — −Y вниз.
+            if (titleTopHalf != null)
+                titleTopHalf.anchoredPosition = topStart + new Vector2(0f, travel * u);
+            if (titleBottomHalf != null)
+                titleBottomHalf.anchoredPosition = bottomStart + new Vector2(0f, -travel * u);
+            yield return null;
+        }
+    }
+
+    void PlayPressSpaceSound()
+    {
+        if (titleAudio == null) return;
+        titleAudio.PlayOneShot(GeneratedAudio.Click, 0.7f);
     }
 
     void CountKill(int _)
@@ -190,7 +261,7 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    // Плашки captionRoot — только ending. На старте/катсцене Show не вызывается и здесь ещё раз отсекается.
+    // Плашки captionRoot — только ending. На старте/титле Show не вызывается.
     IEnumerator Show(string text, float seconds = 0f, bool hold = false)
     {
         if (!ending) yield break;
@@ -210,18 +281,11 @@ public class CutsceneController : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
 
-        // Пустой/минимальный root под будущую анимацию катсцены
-        cutsceneRoot = new GameObject("CutsceneRoot");
-        cutsceneRoot.transform.SetParent(canvasGo.transform, false);
-        var cutRect = cutsceneRoot.AddComponent<RectTransform>();
-        cutRect.anchorMin = Vector2.zero;
-        cutRect.anchorMax = Vector2.one;
-        cutRect.offsetMin = Vector2.zero;
-        cutRect.offsetMax = Vector2.zero;
-        var cutBack = cutsceneRoot.AddComponent<Image>();
-        cutBack.color = Color.black;
-        cutBack.raycastTarget = false;
-        cutsceneRoot.SetActive(false);
+        titleAudio = canvasGo.AddComponent<AudioSource>();
+        titleAudio.playOnAwake = false;
+        titleAudio.spatialBlend = 0f;
+
+        BuildTitleSplash(canvasGo.transform);
 
         // Сразу выключен: не должен мелькать на старте до Opening()
         captionRoot = new GameObject("Caption");
@@ -246,7 +310,7 @@ public class CutsceneController : MonoBehaviour
         hintRect.sizeDelta = new Vector2(700f, 120f);
         hintRect.anchoredPosition = new Vector2(0f, -28f);
         hint = hintGo.AddComponent<Text>();
-        hint.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        hint.font = PixelFont();
         hint.fontSize = 26;
         hint.alignment = TextAnchor.UpperCenter;
         hint.color = new Color(1f, 1f, 1f, 0.78f);
@@ -260,13 +324,101 @@ public class CutsceneController : MonoBehaviour
         pauseRect.anchorMax = new Vector2(0.5f, 0.5f);
         pauseRect.sizeDelta = new Vector2(400f, 80f);
         paused = pauseGo.AddComponent<Text>();
-        paused.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        paused.font = PixelFont();
         paused.fontSize = 36;
         paused.alignment = TextAnchor.MiddleCenter;
         paused.color = new Color(0.9f, 0.9f, 0.88f, 0.9f);
         paused.text = "Paused";
         paused.raycastTarget = false;
         pauseGo.SetActive(false);
+    }
+
+    // Чёрный полноэкранный титул: две половины для wipe + заголовок и PRESS SPACE.
+    void BuildTitleSplash(Transform canvas)
+    {
+        titleRoot = new GameObject("TitleSplash");
+        titleRoot.transform.SetParent(canvas, false);
+        var rootRect = titleRoot.AddComponent<RectTransform>();
+        rootRect.anchorMin = Vector2.zero;
+        rootRect.anchorMax = Vector2.one;
+        rootRect.offsetMin = Vector2.zero;
+        rootRect.offsetMax = Vector2.zero;
+
+        titleTopHalf = MakeHalfPanel(titleRoot.transform, "TopHalf", top: true);
+        titleBottomHalf = MakeHalfPanel(titleRoot.transform, "BottomHalf", top: false);
+
+        // Текст поверх половинок (sibling после панелей), скрываем в начале wipe.
+        var titleGo = new GameObject("TitleLabel");
+        titleGo.transform.SetParent(titleRoot.transform, false);
+        var titleRect = titleGo.AddComponent<RectTransform>();
+        titleRect.anchorMin = new Vector2(0.5f, 0.5f);
+        titleRect.anchorMax = new Vector2(0.5f, 0.5f);
+        titleRect.pivot = new Vector2(0.5f, 0.5f);
+        titleRect.sizeDelta = new Vector2(900f, 120f);
+        titleRect.anchoredPosition = new Vector2(0f, 36f);
+        titleLabel = titleGo.AddComponent<Text>();
+        titleLabel.font = PixelFont();
+        titleLabel.fontSize = 64;
+        titleLabel.fontStyle = FontStyle.Bold;
+        titleLabel.alignment = TextAnchor.MiddleCenter;
+        titleLabel.color = Color.white;
+        titleLabel.text = "ghost clicker";
+        titleLabel.raycastTarget = false;
+
+        var pressGo = new GameObject("PressSpace");
+        pressGo.transform.SetParent(titleRoot.transform, false);
+        var pressRect = pressGo.AddComponent<RectTransform>();
+        pressRect.anchorMin = new Vector2(0.5f, 0.5f);
+        pressRect.anchorMax = new Vector2(0.5f, 0.5f);
+        pressRect.pivot = new Vector2(0.5f, 0.5f);
+        pressRect.sizeDelta = new Vector2(700f, 60f);
+        pressRect.anchoredPosition = new Vector2(0f, -48f);
+        pressSpaceLabel = pressGo.AddComponent<Text>();
+        pressSpaceLabel.font = PixelFont();
+        pressSpaceLabel.fontSize = 28;
+        pressSpaceLabel.alignment = TextAnchor.MiddleCenter;
+        pressSpaceLabel.color = new Color(0.85f, 0.85f, 0.82f, 0.95f);
+        pressSpaceLabel.text = "PRESS SPACE";
+        pressSpaceLabel.raycastTarget = false;
+        pressGo.SetActive(false);
+
+        titleRoot.SetActive(false);
+    }
+
+    // Половинки с пивотом у линии разреза — сдвиг anchoredPosition даёт чистый wipe.
+    static RectTransform MakeHalfPanel(Transform parent, string name, bool top)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rect = go.AddComponent<RectTransform>();
+        if (top)
+        {
+            // Верхняя: якорь по верху экрана, пивот у нижнего края панели.
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.sizeDelta = new Vector2(0f, 540f);
+            rect.anchoredPosition = Vector2.zero;
+        }
+        else
+        {
+            // Нижняя: якорь по низу, пивот у верхнего края панели.
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(1f, 0f);
+            rect.pivot = new Vector2(0.5f, 0f);
+            rect.sizeDelta = new Vector2(0f, 540f);
+            rect.anchoredPosition = Vector2.zero;
+        }
+        var image = go.AddComponent<Image>();
+        image.color = Color.black;
+        image.raycastTarget = false;
+        return rect;
+    }
+
+    // Встроенный шрифт Unity — ближайший «пиксельный» без новых пакетов.
+    static Font PixelFont()
+    {
+        return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
     }
 
     static Text CreateText(Transform parent, int size)
@@ -279,7 +431,7 @@ public class CutsceneController : MonoBehaviour
         rect.offsetMin = new Vector2(24f, 16f);
         rect.offsetMax = new Vector2(-24f, -16f);
         var text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = PixelFont();
         text.fontSize = size;
         text.alignment = TextAnchor.MiddleCenter;
         text.color = new Color(0.92f, 0.92f, 0.9f);

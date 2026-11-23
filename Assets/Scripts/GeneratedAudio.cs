@@ -7,12 +7,15 @@ public static class GeneratedAudio
     static AudioClip drone;
     static AudioClip notification;
     static AudioClip crack;
+    static AudioClip click;
 
     public static AudioClip Hum => hum != null ? hum : hum = NoiseLoop("pc-hum", 22050, 1.4f, 0.035f);
     public static AudioClip Whisper => whisper != null ? whisper : whisper = NoiseLoop("whisper", 22050, 1.8f, 0.22f);
     public static AudioClip Drone => drone != null ? drone : drone = Tone("drone", 22050, 2f);
     public static AudioClip Notification => notification != null ? notification : notification = Blip();
     public static AudioClip Crack => crack != null ? crack : crack = Burst();
+    /// <summary>Короткий клик для появления PRESS SPACE на титуле.</summary>
+    public static AudioClip Click => click != null ? click : click = SoftClick();
 
     static AudioClip NoiseLoop(string name, int rate, float seconds, float tone)
     {
@@ -70,6 +73,23 @@ public static class GeneratedAudio
             data[i] = ((float)rng.NextDouble() * 2f - 1f) * env * 0.6f;
         }
         return Clip("crack", rate, data);
+    }
+
+    // Тихий короткий щелчок (~80 мс), без сторонних ассетов.
+    static AudioClip SoftClick()
+    {
+        int rate = 22050;
+        int count = Mathf.CeilToInt(rate * 0.08f);
+        float[] data = new float[count];
+        for (int i = 0; i < count; i++)
+        {
+            float t = i / (float)rate;
+            float env = Mathf.Exp(-t * 48f);
+            // Два тона — чуть «пиксельный» UI-клик.
+            data[i] = (Mathf.Sin(2f * Mathf.PI * 1320f * t) * 0.55f
+                       + Mathf.Sin(2f * Mathf.PI * 1980f * t) * 0.25f) * env * 0.5f;
+        }
+        return Clip("title-click", rate, data);
     }
 
     static AudioClip Clip(string name, int rate, float[] data)
