@@ -221,7 +221,9 @@ public class Monster : MonoBehaviour
         comboLabel.fontSize = 8;
         comboLabel.fontStyle = FontStyle.Bold;
         comboLabel.color = new Color(1f, 0.92f, 0.35f, 1f);
-        PixelFonts.Apply(comboLabel);
+        // ZXC combo — builtin LegacyRuntime (не m5x7; пиксельный шрифт остаётся у title/phone/mutters/income).
+        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font != null) comboLabel.font = font;
         var renderer = go.GetComponent<MeshRenderer>();
         if (renderer != null) renderer.sortingOrder = 40;
     }
