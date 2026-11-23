@@ -221,8 +221,7 @@ public class Monster : MonoBehaviour
         comboLabel.fontSize = 8;
         comboLabel.fontStyle = FontStyle.Bold;
         comboLabel.color = new Color(1f, 0.92f, 0.35f, 1f);
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font != null) comboLabel.font = font;
+        PixelFonts.Apply(comboLabel);
         var renderer = go.GetComponent<MeshRenderer>();
         if (renderer != null) renderer.sortingOrder = 40;
     }

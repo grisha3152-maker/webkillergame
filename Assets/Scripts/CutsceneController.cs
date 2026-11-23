@@ -310,7 +310,7 @@ public class CutsceneController : MonoBehaviour
         hintRect.sizeDelta = new Vector2(700f, 120f);
         hintRect.anchoredPosition = new Vector2(0f, -28f);
         hint = hintGo.AddComponent<Text>();
-        hint.font = PixelFont();
+        PixelFonts.Apply(hint);
         hint.fontSize = 26;
         hint.alignment = TextAnchor.UpperCenter;
         hint.color = new Color(1f, 1f, 1f, 0.78f);
@@ -324,7 +324,7 @@ public class CutsceneController : MonoBehaviour
         pauseRect.anchorMax = new Vector2(0.5f, 0.5f);
         pauseRect.sizeDelta = new Vector2(400f, 80f);
         paused = pauseGo.AddComponent<Text>();
-        paused.font = PixelFont();
+        PixelFonts.Apply(paused);
         paused.fontSize = 36;
         paused.alignment = TextAnchor.MiddleCenter;
         paused.color = new Color(0.9f, 0.9f, 0.88f, 0.9f);
@@ -357,7 +357,7 @@ public class CutsceneController : MonoBehaviour
         titleRect.sizeDelta = new Vector2(900f, 120f);
         titleRect.anchoredPosition = new Vector2(0f, 36f);
         titleLabel = titleGo.AddComponent<Text>();
-        titleLabel.font = PixelFont();
+        PixelFonts.Apply(titleLabel);
         titleLabel.fontSize = 64;
         titleLabel.fontStyle = FontStyle.Bold;
         titleLabel.alignment = TextAnchor.MiddleCenter;
@@ -374,7 +374,7 @@ public class CutsceneController : MonoBehaviour
         pressRect.sizeDelta = new Vector2(700f, 60f);
         pressRect.anchoredPosition = new Vector2(0f, -48f);
         pressSpaceLabel = pressGo.AddComponent<Text>();
-        pressSpaceLabel.font = PixelFont();
+        PixelFonts.Apply(pressSpaceLabel);
         pressSpaceLabel.fontSize = 28;
         pressSpaceLabel.alignment = TextAnchor.MiddleCenter;
         pressSpaceLabel.color = new Color(0.85f, 0.85f, 0.82f, 0.95f);
@@ -415,12 +415,6 @@ public class CutsceneController : MonoBehaviour
         return rect;
     }
 
-    // Встроенный шрифт Unity — ближайший «пиксельный» без новых пакетов.
-    static Font PixelFont()
-    {
-        return Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-    }
-
     static Text CreateText(Transform parent, int size)
     {
         var go = new GameObject("Text");
@@ -431,7 +425,7 @@ public class CutsceneController : MonoBehaviour
         rect.offsetMin = new Vector2(24f, 16f);
         rect.offsetMax = new Vector2(-24f, -16f);
         var text = go.AddComponent<Text>();
-        text.font = PixelFont();
+        PixelFonts.Apply(text);
         text.fontSize = size;
         text.alignment = TextAnchor.MiddleCenter;
         text.color = new Color(0.92f, 0.92f, 0.9f);
