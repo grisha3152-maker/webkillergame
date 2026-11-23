@@ -90,8 +90,7 @@ public class HeroMutterView : MonoBehaviour
         mesh.characterSize = 14f;
         mesh.fontSize = 42;
         mesh.color = baseColor;
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font != null) mesh.font = font;
+        PixelFonts.Apply(mesh);
         var renderer = go.GetComponent<MeshRenderer>();
         if (renderer != null) renderer.sortingOrder = 35;
         mesh.text = string.Empty;

@@ -19,8 +19,7 @@ public class FloatingIncome : MonoBehaviour
         mesh.characterSize = 18f;
         mesh.fontSize = 48;
         mesh.color = view.color;
-        var font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font != null) mesh.font = font;
+        PixelFonts.Apply(mesh);
         var renderer = go.GetComponent<MeshRenderer>();
         renderer.sortingOrder = 30;
         view.text = mesh;

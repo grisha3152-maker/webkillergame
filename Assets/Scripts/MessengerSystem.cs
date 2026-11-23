@@ -325,7 +325,7 @@ public class MessengerSystem : MonoBehaviour
         var go = new GameObject(name);
         go.transform.SetParent(parent, false);
         var text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        PixelFonts.Apply(text);
         text.fontSize = size;
         text.alignment = anchor;
         text.raycastTarget = false;
