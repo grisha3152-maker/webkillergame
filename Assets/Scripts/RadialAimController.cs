@@ -247,7 +247,8 @@ public class RadialAimController : MonoBehaviour
         float halfCone = Balance.Data.SectorHalfAngle;
         Monster best = null;
         float bestScore = float.MaxValue;
-        var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
+        // Unity 6: без FindObjectsSortMode (устаревший параметр → CS0618).
+        var monsters = FindObjectsByType<Monster>();
         for (int i = 0; i < monsters.Length; i++)
         {
             Monster monster = monsters[i];
@@ -284,7 +285,8 @@ public class RadialAimController : MonoBehaviour
             return System.Array.Empty<Monster>();
 
         float radius = killedBodyWidth * Balance.Data.comboSplashRadiusInBodyWidths;
-        var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
+        // Unity 6: без FindObjectsSortMode (устаревший параметр → CS0618).
+        var monsters = FindObjectsByType<Monster>();
 
         // Два ближайших без сортировки всего списка: держим top-N по дистанции.
         var best = new Monster[maxExtra];

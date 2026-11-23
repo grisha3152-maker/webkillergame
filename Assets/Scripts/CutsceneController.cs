@@ -359,7 +359,8 @@ public class CutsceneController : MonoBehaviour
 
     static void ClearMonsters()
     {
-        var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
+        // Unity 6: без FindObjectsSortMode (устаревший параметр → CS0618).
+        var monsters = FindObjectsByType<Monster>();
         for (int i = 0; i < monsters.Length; i++)
         {
             if (monsters[i] != null) Destroy(monsters[i].gameObject);
