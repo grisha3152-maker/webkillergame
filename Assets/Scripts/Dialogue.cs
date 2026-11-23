@@ -392,6 +392,8 @@ public class Dialogue : MonoBehaviour
         }
 
         active = null;
+        // Счётчик «пропущенных» для виньетки (ShadowManager): только автоигнор по таймеру.
+        GameEvents.MessageIgnored();
         // Панель не закрываем насильно: если открыта — просто обновить историю.
         Refresh();
         OpenNext();

@@ -34,5 +34,13 @@
   "roomThresholds": [0, 200, 500, 900, 1400, 2200],
   "spawnWeights": { "left": 0.35, "right": 0.35, "top": 0.3 },
   "cameraEndSizeFactor": 0.86,
-  "cameraPingZoomOut": 0.08
+  "cameraPingZoomOut": 0.08,
+  "vignetteAfterIgnores": 3,
+  "vignetteFullAlpha": 0.72,
+  "vignetteRampSeconds": 120,
+  "zoomAfterKills": 3,
+  "shakeAfterKills": 10,
+  "shakeMinAmp": 0.15,
+  "shakeMaxAmp": 7,
+  "shakeRampSeconds": 180
 }
