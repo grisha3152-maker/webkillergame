@@ -84,7 +84,8 @@ public class VisualProgression : MonoBehaviour
 
     void DimGlobalLight()
     {
-        var lights = FindObjectsByType<Light2D>(FindObjectsSortMode.None);
+        // Unity 6: перегрузка с FindObjectsSortMode устарела (CS0618).
+        var lights = FindObjectsByType<Light2D>();
         for (int i = 0; i < lights.Length; i++)
         {
             if (lights[i] == null || lights[i].lightType != Light2D.LightType.Global) continue;
