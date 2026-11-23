@@ -13,10 +13,11 @@ using UnityEngine.UI;
 /// E открывает спрайт телефона; на экране — только непрочитанные (блоки по контакту).
 /// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
 /// forcedHit на открытие E не ставится (ответов нет).
-/// Бормотание под ГГ — только при открытии телефона с непрочитанными (последний unread 1–9).
+/// Бормотание под ГГ — при открытии телефона с непрочитанными (последний unread 1–9), ~1с после E.
 /// </summary>
 public class Dialogue : MonoBehaviour
 {
+    const float HeroMutterDelaySeconds = 1f;
     const string PhoneSpritePath = "Sprites/Phone/phone";
     /// <summary>Отступы тёмного экрана внутри спрайта (доля; спрайт обрезан по корпусу ~515×824).</summary>
     const float ScreenInsetL = 0.110f;
@@ -50,6 +51,9 @@ public class Dialogue : MonoBehaviour
 
     DialoguePing active;
     int token;
+    /// <summary>Инвалидирует отложенное бормотание (финал / сброс таймера / новое открытие).</summary>
+    int mutterToken;
+    Coroutine pendingMutter;
     bool panelOpen;
     /// <summary>Есть неотвеченный пинг (таймер игнора ещё тикает).</summary>
     bool pendingIgnore;
@@ -148,6 +152,7 @@ public class Dialogue : MonoBehaviour
             if (timingStarted && !deskSeated && seated)
             {
                 token++;
+                CancelPendingMutter();
                 active = null;
                 waiting.Clear();
                 offered.Clear();
@@ -273,9 +278,10 @@ public class Dialogue : MonoBehaviour
     }
 
     /// <summary>
-    /// При открытии телефона: если есть непрочитанные — бормотать только за последнего
+    /// При открытии телефона: если есть непрочитанные — через ~1с бормотать только за последнего
     /// (если у него есть heroMutter, пинги 1–9). С 10-го у последнего — тишина.
-    /// Весь текущий unread помечается прочитанным; повторно на том же наборе не спамим.
+    /// Весь текущий unread помечается прочитанным сразу; повторно на том же наборе не спамим.
+    /// Закрытие панели до конца задержки бормотание не отменяет (подпись под ГГ, не в чате).
     /// </summary>
     void MutterForLatestUnreadThenMarkRead()
     {
@@ -284,8 +290,34 @@ public class Dialogue : MonoBehaviour
         UnreadEntry latest = unread[unread.Count - 1];
         unread.Clear();
 
-        if (!string.IsNullOrEmpty(latest.heroMutter))
-            GameEvents.HeroMutter(latest.heroMutter);
+        if (string.IsNullOrEmpty(latest.heroMutter)) return;
+
+        CancelPendingMutter();
+        pendingMutter = StartCoroutine(DelayedHeroMutter(mutterToken, latest.heroMutter));
+    }
+
+    IEnumerator DelayedHeroMutter(int myToken, string line)
+    {
+        float t = 0f;
+        while (t < HeroMutterDelaySeconds)
+        {
+            if (myToken != mutterToken) yield break;
+            t += Time.deltaTime;
+            yield return null;
+        }
+        if (myToken != mutterToken) yield break;
+        pendingMutter = null;
+        GameEvents.HeroMutter(line);
+    }
+
+    void CancelPendingMutter()
+    {
+        mutterToken++;
+        if (pendingMutter != null)
+        {
+            StopCoroutine(pendingMutter);
+            pendingMutter = null;
+        }
     }
 
     void PollArrivals()
@@ -552,6 +584,7 @@ public class Dialogue : MonoBehaviour
     void HideAll()
     {
         token++;
+        CancelPendingMutter();
         active = null;
         pendingIgnore = false;
         panelOpen = false;
