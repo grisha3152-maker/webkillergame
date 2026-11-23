@@ -24,11 +24,13 @@ public class Dialogue : MonoBehaviour
     const float ScreenInsetR = 0.114f;
     const float ScreenInsetT = 0.078f;
     const float ScreenInsetB = 0.078f;
-    /// <summary>Ширина строки имени+счётчика в символах m5x7 (умещается в экран).</summary>
-    const int InboxLineWidth = 18;
+    /// <summary>Ширина строки имени+счётчика в символах m5x7 (после увеличения кегля уже).</summary>
+    const int InboxLineWidth = 14;
     const int VisibleInboxBlocks = 3;
-    const int InboxFontSize = 16;
-    const int FooterFontSize = 14;
+    /// <summary>Кегль inbox внутри безеля: 16 было нечитаемо (Mom и т.п.); крупнее ради читаемости.</summary>
+    const int InboxFontSize = 26;
+    /// <summary>Подсказка [E] close — чуть меньше тела, но тоже крупнее прежних 14.</summary>
+    const int FooterFontSize = 20;
 
     [SerializeField] TextAsset dialogueJson;
 
@@ -859,12 +861,13 @@ public class Dialogue : MonoBehaviour
         // Клип: текст не рисуется поверх безеля/комнаты.
         screenGo.AddComponent<RectMask2D>();
 
+        // Текст inbox только в тёмной зоне экрана; кегль крупный — иначе Mom/превью нечитаемы.
         body = MakeText(screenArea, "InboxBody", InboxFontSize, TextAnchor.UpperLeft);
-        Stretch(body.rectTransform, 8f, 8f, 8f, 30f);
+        Stretch(body.rectTransform, 8f, 8f, 8f, 40f);
         body.color = new Color(0.86f, 0.88f, 0.94f);
         body.horizontalOverflow = HorizontalWrapMode.Wrap;
         body.verticalOverflow = VerticalWrapMode.Truncate;
-        body.lineSpacing = 1.0f;
+        body.lineSpacing = 1.05f;
         body.resizeTextForBestFit = false;
 
         footer = MakeText(screenArea, "Footer", FooterFontSize, TextAnchor.LowerCenter);
@@ -872,8 +875,9 @@ public class Dialogue : MonoBehaviour
         footerRect.anchorMin = new Vector2(0f, 0f);
         footerRect.anchorMax = new Vector2(1f, 0f);
         footerRect.pivot = new Vector2(0.5f, 0f);
-        footerRect.sizeDelta = new Vector2(-16f, 24f);
-        footerRect.anchoredPosition = new Vector2(0f, 4f);
+        // Высота футера под FooterFontSize=20, чтобы [E] close не обрезался.
+        footerRect.sizeDelta = new Vector2(-16f, 32f);
+        footerRect.anchoredPosition = new Vector2(0f, 6f);
         footer.color = new Color(0.55f, 0.58f, 0.7f);
         footer.horizontalOverflow = HorizontalWrapMode.Wrap;
         footer.verticalOverflow = VerticalWrapMode.Truncate;
