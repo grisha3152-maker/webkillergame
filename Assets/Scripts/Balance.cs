@@ -82,6 +82,22 @@ public class BalanceData
     public float cameraEndSizeFactor = 0.86f;
     /// <summary>Доля стартового ortho для скачка zoom out на входящий пинг (0.08 ≈ +8% size).</summary>
     public float cameraPingZoomOut = 0.08f;
+    /// <summary>Виньетка включается после N-го автоигнора сообщения.</summary>
+    public int vignetteAfterIgnores = 3;
+    /// <summary>Целевая альфа виньетки (бывший «полный» уровень).</summary>
+    public float vignetteFullAlpha = 0.72f;
+    /// <summary>За сколько секунд альфа растёт от 0 до vignetteFullAlpha после порога.</summary>
+    public float vignetteRampSeconds = 120f;
+    /// <summary>Tension-zoom и ping zoom-out только после N-го убийства призрака.</summary>
+    public int zoomAfterKills = 3;
+    /// <summary>Тряска камеры начинается после N-го убийства.</summary>
+    public int shakeAfterKills = 10;
+    /// <summary>Стартовая амплитуда тряски (очень мелкая).</summary>
+    public float shakeMinAmp = 0.15f;
+    /// <summary>Потолок амплитуды тряски.</summary>
+    public float shakeMaxAmp = 7f;
+    /// <summary>За сколько секунд тряска растёт от min к max (как zoom-ramp).</summary>
+    public float shakeRampSeconds = 180f;
 
     public float SectorHalfAngle => coneDegrees * 0.5f;
 
@@ -116,6 +132,14 @@ public class BalanceData
         if (turnFloor <= 0f) turnFloor = 0.35f;
         if (cameraEndSizeFactor <= 0f || cameraEndSizeFactor >= 1f) cameraEndSizeFactor = 0.86f;
         if (cameraPingZoomOut <= 0f) cameraPingZoomOut = 0.08f;
+        if (vignetteAfterIgnores <= 0) vignetteAfterIgnores = 3;
+        if (vignetteFullAlpha <= 0f) vignetteFullAlpha = 0.72f;
+        if (vignetteRampSeconds <= 0f) vignetteRampSeconds = 120f;
+        if (zoomAfterKills <= 0) zoomAfterKills = 3;
+        if (shakeAfterKills <= 0) shakeAfterKills = 10;
+        if (shakeMinAmp < 0f) shakeMinAmp = 0.15f;
+        if (shakeMaxAmp <= 0f) shakeMaxAmp = 7f;
+        if (shakeRampSeconds <= 0f) shakeRampSeconds = 180f;
     }
 
     public static BalanceData CreateDefault()

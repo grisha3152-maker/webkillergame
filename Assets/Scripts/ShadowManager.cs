@@ -1,6 +1,10 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+/// <summary>
+/// Тени в углах + виньетка + лёгкая тряска камеры.
+/// Пейсинг: виньетка после N-го игнора сообщения; тряска после M-го килла (см. balance.json).
+/// </summary>
 public class ShadowManager : MonoBehaviour
 {
     [SerializeField] private int maxShadows = 5;
@@ -17,6 +21,24 @@ public class ShadowManager : MonoBehaviour
     bool finale;
     bool silenced;
 
+    /// <summary>Сколько сообщений автоигнорировано (таймаут).</summary>
+    int ignoredCount;
+    /// <summary>Сколько призраков убито за забег.</summary>
+    int killCount;
+
+    int vignetteAfterIgnores = 3;
+    float vignetteFullAlpha = 0.72f;
+    float vignetteRampSeconds = 120f;
+    /// <summary>Секунды с момента разблокировки виньетки (3-й игнор).</summary>
+    float vignetteAge;
+
+    int shakeAfterKills = 10;
+    float shakeMinAmp = 0.15f;
+    float shakeMaxAmp = 7f;
+    float shakeRampSeconds = 180f;
+    /// <summary>Секунды с момента разблокировки тряски (10-й килл).</summary>
+    float shakeAge;
+
     public int Count => count;
 
     void Start()
@@ -25,6 +47,15 @@ public class ShadowManager : MonoBehaviour
         // Канон maxShadows из balance.json (GDD 15.3).
         if (Balance.Data.maxShadows > 0)
             maxShadows = Balance.Data.maxShadows;
+        var bal = Balance.Data;
+        vignetteAfterIgnores = Mathf.Max(1, bal.vignetteAfterIgnores);
+        vignetteFullAlpha = Mathf.Clamp01(bal.vignetteFullAlpha);
+        vignetteRampSeconds = Mathf.Max(1f, bal.vignetteRampSeconds);
+        shakeAfterKills = Mathf.Max(1, bal.shakeAfterKills);
+        shakeMinAmp = Mathf.Max(0f, bal.shakeMinAmp);
+        shakeMaxAmp = Mathf.Max(shakeMinAmp, bal.shakeMaxAmp);
+        shakeRampSeconds = Mathf.Max(1f, bal.shakeRampSeconds);
+
         cam = Camera.main;
         if (cam != null) camBase = cam.transform.position;
         BuildVignette();
@@ -37,11 +68,15 @@ public class ShadowManager : MonoBehaviour
     void OnEnable()
     {
         GameEvents.OnHeroHit += AddShadow;
+        GameEvents.OnMessageIgnored += OnMessageIgnored;
+        GameEvents.OnGhostKilled += OnGhostKilled;
     }
 
     void OnDisable()
     {
         GameEvents.OnHeroHit -= AddShadow;
+        GameEvents.OnMessageIgnored -= OnMessageIgnored;
+        GameEvents.OnGhostKilled -= OnGhostKilled;
     }
 
     void Update()
@@ -50,28 +85,65 @@ public class ShadowManager : MonoBehaviour
         if (drone != null && !finale)
             drone.volume = Mathf.MoveTowards(drone.volume, Mathf.Lerp(0.08f, 0f, age01), Time.deltaTime * 0.05f);
 
-        float pressure = finale ? 1f : count / (float)maxShadows;
+        var gm = GameManager.Instance;
+        bool ticking = gm == null || (!gm.IsPaused && !gm.IsEnded);
+
+        // Виньетка: до 3-го игнора alpha=0; потом плавный рост 0 → full за vignetteRampSeconds.
         if (vignette != null)
         {
-            float target = Mathf.Lerp(0f, 0.72f, pressure);
+            float target = 0f;
+            if (finale)
+                target = vignetteFullAlpha;
+            else if (ignoredCount >= vignetteAfterIgnores)
+            {
+                if (ticking)
+                    vignetteAge += Time.deltaTime;
+                float t = Mathf.Clamp01(vignetteAge / vignetteRampSeconds);
+                target = Mathf.Lerp(0f, vignetteFullAlpha, t);
+            }
+
             var c = vignette.color;
-            c.a = Mathf.MoveTowards(c.a, target, Time.deltaTime * (finale ? 0.8f : 0.35f));
+            // Финал — чуть быстрее; иначе без рывка к target (target уже гладкий по времени).
+            float step = finale ? 0.8f : 1.5f;
+            c.a = Mathf.MoveTowards(c.a, target, Time.deltaTime * step);
             vignette.color = c;
         }
 
+        // Тряска: только после 10-го килла; амплитуда растёт каждую секунду как zoom-ramp.
         if (cam != null && !finale)
         {
-            float amp = pressure * 7f;
             Vector3 shake = Vector3.zero;
-            if (amp > 0.01f)
+            if (killCount >= shakeAfterKills)
             {
-                shake.x = (Mathf.PerlinNoise(Time.time * 8f, 0.2f) - 0.5f) * 2f * amp;
-                shake.y = (Mathf.PerlinNoise(0.2f, Time.time * 8f) - 0.5f) * 2f * amp;
+                if (ticking)
+                    shakeAge += Time.deltaTime;
+                float t = Mathf.Clamp01(shakeAge / shakeRampSeconds);
+                float amp = Mathf.Lerp(shakeMinAmp, shakeMaxAmp, t);
+                if (amp > 0.01f)
+                {
+                    shake.x = (Mathf.PerlinNoise(Time.time * 8f, 0.2f) - 0.5f) * 2f * amp;
+                    shake.y = (Mathf.PerlinNoise(0.2f, Time.time * 8f) - 0.5f) * 2f * amp;
+                }
             }
             cam.transform.position = camBase + shake;
         }
 
         FadeWhispers();
+    }
+
+    void OnMessageIgnored()
+    {
+        ignoredCount++;
+        // Старт отсчёта рампы ровно на пороге (не раньше).
+        if (ignoredCount == vignetteAfterIgnores)
+            vignetteAge = 0f;
+    }
+
+    void OnGhostKilled(int _)
+    {
+        killCount++;
+        if (killCount == shakeAfterKills)
+            shakeAge = 0f;
     }
 
     public void AddShadow()
