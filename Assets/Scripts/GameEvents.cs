@@ -22,7 +22,7 @@ public static class GameEvents
     public static event Action OnHitComboSucceeded;
     /// <summary>Новое входящее уведомление телефона (пинг стал активным).</summary>
     public static event Action<string> OnMessageArrived;
-    /// <summary>Короткая реплика под ГГ при входящем (пинги 1–9); пустая строка не шлётся.</summary>
+    /// <summary>Короткая реплика под ГГ при открытии телефона с unread (пинги 1–9); пустая строка не шлётся.</summary>
     public static event Action<string> OnHeroMutter;
 
     public static void GhostKilled(int payout) => OnGhostKilled?.Invoke(payout);

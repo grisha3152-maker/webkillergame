@@ -1,7 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// Мировая подпись под ГГ: короткая реплика на входящее (не в чате телефона).
+/// Мировая подпись под ГГ: короткая реплика при открытии телефона с непрочитанными (не в чате).
 /// Слушает GameEvents.OnHeroMutter, гаснет за пару секунд.
 /// </summary>
 public class HeroMutterView : MonoBehaviour
