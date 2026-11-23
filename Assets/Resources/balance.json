@@ -9,7 +9,7 @@
   "turnAfterPhone": 0.55,
   "turnAfterHit": 0.4,
   "turnFloor": 0.35,
-  "killsToRestoreTurn": 5,
+  "killsToRestoreTurn": 3,
   "dollarsPerKill": 10,
   "pillWindowSeconds": 20,
   "pillWarningSeconds": 5,

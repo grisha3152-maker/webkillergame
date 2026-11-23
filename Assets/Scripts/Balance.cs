@@ -58,7 +58,8 @@ public class BalanceData
     public float turnAfterPhone = 0.55f;
     public float turnAfterHit = 0.4f;
     public float turnFloor = 0.35f;
-    public int killsToRestoreTurn = 5;
+    /// <summary>Сколько убийств в стрике нужно, чтобы сделать шаг восстановления поворота (×1.2, не выше 1).</summary>
+    public int killsToRestoreTurn = 3;
     public int dollarsPerKill = 10;
     public float pillWindowSeconds = 20f;
     public float pillWarningSeconds = 5f;
@@ -109,7 +110,7 @@ public class BalanceData
         if (comboSplashRadiusInBodyWidths <= 0f) comboSplashRadiusInBodyWidths = 1.5f;
         if (comboSplashMaxExtraKills < 0) comboSplashMaxExtraKills = 0;
         if (baseTurnDegreesPerSecond <= 0f) baseTurnDegreesPerSecond = 240f;
-        if (killsToRestoreTurn <= 0) killsToRestoreTurn = 5;
+        if (killsToRestoreTurn <= 0) killsToRestoreTurn = 3;
         if (dollarsPerKill <= 0) dollarsPerKill = 10;
         if (maxShadows <= 0) maxShadows = 5;
         if (turnFloor <= 0f) turnFloor = 0.35f;

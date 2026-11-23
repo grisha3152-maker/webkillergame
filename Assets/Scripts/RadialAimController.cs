@@ -359,11 +359,16 @@ public class RadialAimController : MonoBehaviour
 
     void OnGhostKilled(int _)
     {
+        // Пачка из killsToRestoreTurn убийств → шаг восстановления drag ×1.2 (не полный сброс к 1).
         streak++;
-        if (streak >= Balance.Data.killsToRestoreTurn)
+        if (streak < Balance.Data.killsToRestoreTurn)
+            return;
+
+        streak = 0;
+        // 1 убийство после 3 = скорость * 1.2, если ниже 1.0; потолок — полная скорость (1).
+        if (drag < 1f)
         {
-            streak = 0;
-            drag = 1f;
+            drag = Mathf.Min(1f, drag * 1.2f);
             GameEvents.ComboRestored();
         }
     }
