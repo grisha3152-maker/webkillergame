@@ -139,23 +139,13 @@
     "choices": []
   },
   {
-    "id": "lev_window",
+    "id": "lev_alive",
     "contact": "lev",
-    "at": 470,
+    "at": 380,
     "forcedHit": false,
-    "requires": ["lev_relation_gt_25"],
-    "set": [],
-    "in": "saw your window. still blue at this hour.",
-    "choices": []
-  },
-  {
-    "id": "lev_farewell",
-    "contact": "lev",
-    "at": 470,
-    "forcedHit": false,
-    "requires": ["lev_relation_lte_25"],
-    "set": [],
-    "in": "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye.",
+    "requires": [],
+    "set": ["lev_alive_sent"],
+    "in": "are you even alive?",
     "choices": []
   },
   {

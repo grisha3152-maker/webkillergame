@@ -18,6 +18,10 @@ using UnityEngine.UI;
 public class Dialogue : MonoBehaviour
 {
     const float HeroMutterDelaySeconds = 1f;
+    /// <summary>Финальный пинг Лева — триггер narrative ending (EN в JSON, RU на экране катсцены).</summary>
+    const string AlivePingId = "lev_alive";
+    /// <summary>Секунд с открытым телефоном на lev_alive до старта каскада.</summary>
+    const float AliveEndingHoldSeconds = 5f;
     const string PhoneSpritePath = "Sprites/Phone/phone";
     /// <summary>Отступы тёмного экрана внутри спрайта (доля; спрайт обрезан по корпусу ~515×824).</summary>
     const float ScreenInsetL = 0.110f;
@@ -56,6 +60,7 @@ public class Dialogue : MonoBehaviour
     /// <summary>Инвалидирует отложенное бормотание (финал / сброс таймера / новое открытие).</summary>
     int mutterToken;
     Coroutine pendingMutter;
+    Coroutine aliveHoldRoutine;
     bool panelOpen;
     /// <summary>Есть неотвеченный пинг (таймер игнора ещё тикает).</summary>
     bool pendingIgnore;
@@ -257,11 +262,14 @@ public class Dialogue : MonoBehaviour
             BeginInboxSession();
             string who = active != null ? active.id : "inbox";
             Debug.Log($"Dialogue: E → телефон открыт ({who}, inbox={openInbox.Count}, history={history.Count})");
+            // До clear unread: если в сессии есть lev_alive — через 5с стартуем ending.
+            TryStartAliveEndingHold();
             MutterForLatestUnreadThenMarkRead();
             scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
         }
         else
         {
+            CancelAliveEndingHold();
             openInbox.Clear();
             scrollBlocks = 0;
             Debug.Log("Dialogue: E → телефон закрыт");
@@ -269,6 +277,73 @@ public class Dialogue : MonoBehaviour
         // Открытие E только чтение — forcedHit / MessageReplied не вызываем.
         LastReplyForcedHit = false;
         Refresh();
+    }
+
+    /// <summary>Есть ли в текущем inbox снимок пинга lev_alive.</summary>
+    bool OpenInboxHasAlivePing()
+    {
+        for (int i = 0; i < openInbox.Count; i++)
+        {
+            if (openInbox[i] != null && openInbox[i].pingId == AlivePingId)
+                return true;
+        }
+        return false;
+    }
+
+    void TryStartAliveEndingHold()
+    {
+        if (!OpenInboxHasAlivePing()) return;
+        var gm = GameManager.Instance;
+        if (gm == null || gm.IsEnded) return;
+
+        CancelAliveEndingHold(disarm: false);
+        gm.ArmAliveEnding();
+        aliveHoldRoutine = StartCoroutine(AliveEndingHoldThenBegin());
+        Debug.Log("Dialogue: lev_alive открыт — через 5с narrative ending (телефон должен остаться открытым).");
+    }
+
+    void CancelAliveEndingHold(bool disarm = true)
+    {
+        if (aliveHoldRoutine == null) return;
+        StopCoroutine(aliveHoldRoutine);
+        aliveHoldRoutine = null;
+        // Закрыли телефон до 5с — не блокируем age-40 / shadows навсегда.
+        if (disarm && GameManager.Instance != null)
+            GameManager.Instance.DisarmAliveEnding();
+    }
+
+    IEnumerator AliveEndingHoldThenBegin()
+    {
+        float t = 0f;
+        while (t < AliveEndingHoldSeconds)
+        {
+            // Спека: 5с с открытым телефоном и видимым сообщением.
+            if (!panelOpen)
+            {
+                aliveHoldRoutine = null;
+                if (GameManager.Instance != null)
+                    GameManager.Instance.DisarmAliveEnding();
+                yield break;
+            }
+            var gm = GameManager.Instance;
+            if (gm != null && gm.IsEnded)
+            {
+                aliveHoldRoutine = null;
+                yield break;
+            }
+            t += Time.deltaTime;
+            yield return null;
+        }
+
+        aliveHoldRoutine = null;
+        if (!panelOpen)
+        {
+            if (GameManager.Instance != null)
+                GameManager.Instance.DisarmAliveEnding();
+            yield break;
+        }
+        if (GameManager.Instance == null || GameManager.Instance.IsEnded) yield break;
+        GameManager.Instance.BeginAliveEnding();
     }
 
     /// <summary>Скопировать текущий unread в openInbox до очистки.</summary>
@@ -333,7 +408,8 @@ public class Dialogue : MonoBehaviour
             if (ping == null || string.IsNullOrEmpty(ping.id)) continue;
             if (offered.Contains(ping.id)) continue;
             if (playTime + 0.05f < ping.at) continue;
-            if (closed.Contains(ping.contact)) continue;
+            // lev_alive — финальный пинг: доставляем даже если контакт уже закрыт игнорами.
+            if (closed.Contains(ping.contact) && ping.id != AlivePingId) continue;
             if (!RequiresMet(ping)) continue;
 
             offered.Add(ping.id);
@@ -351,7 +427,7 @@ public class Dialogue : MonoBehaviour
             var next = waiting.Dequeue();
             // Опоздавшие в очереди НЕ сбрасываем: unread-блок контакта должен
             // дойти до телефона и жить до открытия E (счётчик пропусков тоже).
-            if (closed.Contains(next.contact))
+            if (closed.Contains(next.contact) && next.id != AlivePingId)
                 continue;
             SyncDerivedFlags();
             if (!RequiresMet(next))
@@ -484,6 +560,8 @@ public class Dialogue : MonoBehaviour
         {
             openInbox.Add(entry);
             scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
+            if (ping.id == AlivePingId)
+                TryStartAliveEndingHold();
         }
         else
             unread.Add(entry);
@@ -587,6 +665,7 @@ public class Dialogue : MonoBehaviour
     {
         token++;
         CancelPendingMutter();
+        CancelAliveEndingHold();
         active = null;
         pendingIgnore = false;
         panelOpen = false;

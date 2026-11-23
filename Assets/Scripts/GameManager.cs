@@ -21,6 +21,8 @@ public class GameManager : MonoBehaviour
     public bool AllowCombat => GameplayActive && !IsPaused && !IsEnded;
 
     float lastAgeNotified = -1f;
+    /// <summary>Игрок открыл последнее сообщение Лева — предпочитаем narrative ending.</summary>
+    bool aliveEndingArmed;
 
     void Awake()
     {
@@ -108,7 +110,39 @@ public class GameManager : MonoBehaviour
     public void EndBecauseOfShadows()
     {
         if (IsEnded) return;
+        // Уже открыли финальный пинг Лева — ждём narrative path.
+        if (aliveEndingArmed) return;
         BeginEnding(quiet: false);
+    }
+
+    /// <summary>Пометить: открыт unread lev_alive — блокируем 5-shadow / age-40 до старта катсцены.</summary>
+    public void ArmAliveEnding()
+    {
+        if (IsEnded) return;
+        aliveEndingArmed = true;
+    }
+
+    /// <summary>Телефон закрыли до 5с — снова разрешаем обычные endings.</summary>
+    public void DisarmAliveEnding()
+    {
+        if (IsEnded) return;
+        aliveEndingArmed = false;
+    }
+
+    /// <summary>Старт ending после 5с с открытым телефоном на «are you even alive?».</summary>
+    public void BeginAliveEnding()
+    {
+        if (IsEnded) return;
+        aliveEndingArmed = true;
+        IsEnded = true;
+        GameplayActive = false;
+        IsPaused = false;
+        Time.timeScale = 1f;
+        GameEvents.FinaleStarted();
+
+        var cutscene = FindAnyObjectByType<CutsceneController>();
+        if (cutscene != null)
+            cutscene.PlayAliveEnding();
     }
 
     void AddPayout(int amount)
@@ -121,13 +155,15 @@ public class GameManager : MonoBehaviour
     void OnShadows(int count)
     {
         ShadowCount = count;
-        if (GameplayActive && count >= 5)
+        if (GameplayActive && count >= 5 && !aliveEndingArmed)
             BeginEnding(quiet: false);
     }
 
     void ResolveForty()
     {
         if (IsEnded) return;
+        // Пока ждём/ведём Lev alive-ending — age-40 не перехватывает.
+        if (aliveEndingArmed) return;
         BeginEnding(quiet: ShadowCount <= 0);
     }
 
