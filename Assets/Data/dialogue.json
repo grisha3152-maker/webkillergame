@@ -7,6 +7,7 @@
     "requires": [],
     "set": ["mom_ate_asked"],
     "in": "you ate?",
+    "heroMutter": "in a bit..",
     "choices": []
   },
   {
@@ -16,7 +17,8 @@
     "forcedHit": false,
     "requires": [],
     "set": ["anya_cinema_asked"],
-    "in": "that movie's on at 8. are you coming.",
+    "in": "they're showing that movie at 8. you in?",
+    "heroMutter": "busy right now..",
     "choices": []
   },
   {
@@ -26,7 +28,8 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "the bench is free. ten minutes.",
+    "in": "come down. ten minutes. the bench is free.",
+    "heroMutter": "not right now..",
     "choices": []
   },
   {
@@ -36,7 +39,8 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "TICKET 441. northline is down.",
+    "in": "TICKET 441. northline is down. now.",
+    "heroMutter": "something broke again.. can't they fix it themselves?",
     "choices": []
   },
   {
@@ -46,7 +50,8 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "he's loud again. the kitchen light is on.",
+    "in": "he's loud again. can you come to the kitchen for a bit.",
+    "heroMutter": "i'm here.. later",
     "choices": []
   },
   {
@@ -56,7 +61,19 @@
     "forcedHit": false,
     "requires": ["anya_cinema_asked"],
     "set": [],
-    "in": "thursday. last showing. you never said.",
+    "in": "last night they're showing it. thursday. yes or no.",
+    "heroMutter": "who cares that i didn't go..",
+    "choices": []
+  },
+  {
+    "id": "anya_after_cinema",
+    "contact": "anya",
+    "at": 175,
+    "forcedHit": false,
+    "requires": ["anya_cinema_asked"],
+    "set": [],
+    "in": "it was good. you left before the lights came up.",
+    "heroMutter": "movie's a movie..",
     "choices": []
   },
   {
@@ -66,7 +83,8 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "i asked like a person. walk. tonight. or don't.",
+    "in": "last time i ask like a normal person. walk. tonight.",
+    "heroMutter": "the walk can wait..",
     "choices": []
   },
   {
@@ -76,7 +94,8 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "forty seconds idle. again.",
+    "in": "second breach. you went idle for 40 seconds. explain.",
+    "heroMutter": "forty seconds is nothing..",
     "choices": []
   },
   {
@@ -86,7 +105,7 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "i keep checking if this chat still exists.",
+    "in": "i need to know if this is a thing or if i'm talking to a screensaver.",
     "choices": []
   },
   {
@@ -96,7 +115,7 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "bought meat. you don't have to send money. just eat something.",
+    "in": "got paid. bought actual meat. you don't have to send anything.",
     "choices": []
   },
   {
@@ -106,7 +125,7 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "overnight window open. double rate. clock's indifferent.",
+    "in": "overnight window. double rate if you stay.",
     "choices": []
   },
   {
@@ -116,7 +135,7 @@
     "forcedHit": false,
     "requires": [],
     "set": [],
-    "in": "doctor called. nothing dramatic. the kitchen's just quiet.",
+    "in": "doctor called. nothing cinematic. i just don't want to sit in the kitchen alone.",
     "choices": []
   },
   {
@@ -126,7 +145,7 @@
     "forcedHit": false,
     "requires": ["lev_relation_gt_25"],
     "set": [],
-    "in": "your window's still blue. i'm downstairs a minute.",
+    "in": "saw your window. still blue at this hour.",
     "choices": []
   },
   {
@@ -136,7 +155,7 @@
     "forcedHit": false,
     "requires": ["lev_relation_lte_25"],
     "set": [],
-    "in": "i won't write into a mute chat anymore. bye.",
+    "in": "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye.",
     "choices": []
   },
   {
@@ -146,7 +165,7 @@
     "forcedHit": false,
     "requires": [],
     "set": ["mila_unlocked"],
-    "in": "we're having a kid. i won't ask you to answer. i needed it said.",
+    "in": "we're having a kid. i'm scared and i still want you in the room.",
     "choices": []
   },
   {
@@ -156,17 +175,7 @@
     "forcedHit": false,
     "requires": ["mila_unlocked"],
     "set": [],
-    "in": "mom said you're behind the door. i drew the computer. it looks lonely.",
-    "choices": []
-  },
-  {
-    "id": "mom_plate",
-    "contact": "mom",
-    "at": 600,
-    "forcedHit": false,
-    "requires": [],
-    "set": [],
-    "in": "wherever you are. turn it off. come eat.",
+    "in": "mom said you're behind the door. i drew the computer. it looks like a monster.",
     "choices": []
   }
 ]
