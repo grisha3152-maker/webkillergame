@@ -9,14 +9,23 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Телефон: пинги из dialogue.json по at (сек после посадки).
-/// ГГ никогда не отвечает текстом — только чтение входящих.
-/// E открывает историю (накопленные входящие) и/или активный пинг; timeScale не трогаем.
+/// ГГ никогда не отвечает текстом — только чтение входящих (ignore-only).
+/// E открывает спрайт телефона; на экране — только непрочитанные (блоки по контакту).
 /// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
 /// forcedHit на открытие E не ставится (ответов нет).
 /// Бормотание под ГГ — только при открытии телефона с непрочитанными (последний unread 1–9).
 /// </summary>
 public class Dialogue : MonoBehaviour
 {
+    const string PhoneSpritePath = "Sprites/Phone/phone";
+    /// <summary>Отступы тёмного экрана внутри спрайта телефона (доля ширины/высоты).</summary>
+    const float ScreenInsetL = 0.093f;
+    const float ScreenInsetR = 0.095f;
+    const float ScreenInsetT = 0.121f;
+    const float ScreenInsetB = 0.062f;
+    const int InboxLineWidth = 26;
+    const int VisibleInboxBlocks = 4;
+
     [SerializeField] TextAsset dialogueJson;
 
     DialoguePing[] pings;
@@ -26,10 +35,12 @@ public class Dialogue : MonoBehaviour
     readonly Dictionary<string, int> relations = new Dictionary<string, int>();
     readonly Dictionary<string, int> coldCounts = new Dictionary<string, int>();
     readonly Queue<DialoguePing> waiting = new Queue<DialoguePing>();
-    /// <summary>Накопленные входящие сверху вниз; при закрытии панели не сбрасывается.</summary>
+    /// <summary>Полная история входящих (логика отношений); в UI не показываем старые.</summary>
     readonly List<HistoryLine> history = new List<HistoryLine>();
-    /// <summary>Непрочитанные входящие (пришли при закрытом телефоне). Очищаются при открытии E.</summary>
+    /// <summary>Непрочитанные при закрытом телефоне. Копируются в openInbox и очищаются при E.</summary>
     readonly List<UnreadEntry> unread = new List<UnreadEntry>();
+    /// <summary>Снимок inbox на время открытой панели (unread на момент открытия + пришедшие пока смотрим).</summary>
+    readonly List<UnreadEntry> openInbox = new List<UnreadEntry>();
 
     DialoguePing active;
     int token;
@@ -44,11 +55,11 @@ public class Dialogue : MonoBehaviour
     int relationWarm = 15;
     int relationCold = -25;
     int farewellStrikes = 2;
-    int scrollLines;
+    int scrollBlocks;
 
     RectTransform panel;
+    RectTransform screenArea;
     Text body;
-    Text header;
     Text footer;
     Text tab;
     AudioSource notify;
@@ -61,8 +72,8 @@ public class Dialogue : MonoBehaviour
     /// <summary>Есть активное входящее (вкладка / таймер игнора).</summary>
     public bool HasActiveMessage => active != null;
 
-    /// <summary>Можно открыть телефон: активный пинг или уже есть история.</summary>
-    public bool CanOpenPhone => active != null || history.Count > 0;
+    /// <summary>Можно открыть телефон: активный пинг, история или непрочитанные.</summary>
+    public bool CanOpenPhone => active != null || history.Count > 0 || unread.Count > 0;
 
     /// <summary>Ответов нет — forcedHit с телефона никогда не выставляется.</summary>
     public bool LastReplyForcedHit { get; private set; }
@@ -136,9 +147,10 @@ public class Dialogue : MonoBehaviour
                 offered.Clear();
                 history.Clear();
                 unread.Clear();
+                openInbox.Clear();
                 pendingIgnore = false;
                 panelOpen = false;
-                scrollLines = 0;
+                scrollBlocks = 0;
             }
             playTime = 0f;
             firstPingLogged = false;
@@ -195,24 +207,24 @@ public class Dialogue : MonoBehaviour
             pressedE = true;
 #endif
 
-        // E: открыть/закрыть историю или активный пинг. Без истории и пинга — ничего.
+        // E: открыть/закрыть телефон. Без пинга/истории/unread — ничего.
         if (pressedE)
             TogglePhone();
 
-        if (!panelOpen || history.Count == 0) return;
+        if (!panelOpen || openInbox.Count == 0) return;
         if (keyboard == null) return;
 
-        // Скролл истории стрелками (без выбора реплик).
-        int visible = VisibleHistoryLines();
-        int maxScroll = Mathf.Max(0, history.Count - visible);
+        // Скролл блоков контактов стрелками (без выбора реплик).
+        int blockCount = CountInboxBlocks();
+        int maxScroll = Mathf.Max(0, blockCount - VisibleInboxBlocks);
         if (keyboard.upArrowKey.wasPressedThisFrame)
         {
-            scrollLines = Mathf.Max(0, scrollLines - 1);
+            scrollBlocks = Mathf.Max(0, scrollBlocks - 1);
             Refresh();
         }
         else if (keyboard.downArrowKey.wasPressedThisFrame)
         {
-            scrollLines = Mathf.Min(maxScroll, scrollLines + 1);
+            scrollBlocks = Mathf.Min(maxScroll, scrollBlocks + 1);
             Refresh();
         }
     }
@@ -228,20 +240,30 @@ public class Dialogue : MonoBehaviour
         panelOpen = !panelOpen;
         if (panelOpen)
         {
-            // Новое внизу: при открытии прокрутить к концу.
-            scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
-            string who = active != null ? active.id : "история";
-            Debug.Log($"Dialogue: E → панель открыта ({who}, строк={history.Count}, unread={unread.Count})");
-            // Бормотание один раз на это открытие по текущему набору непрочитанных.
+            // Снимок непрочитанных на экран; бормотание + пометка прочитанным.
+            BeginInboxSession();
+            string who = active != null ? active.id : "inbox";
+            Debug.Log($"Dialogue: E → телефон открыт ({who}, inbox={openInbox.Count}, history={history.Count})");
             MutterForLatestUnreadThenMarkRead();
+            scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
         }
         else
         {
-            Debug.Log("Dialogue: E → панель закрыта (история сохранена)");
+            openInbox.Clear();
+            scrollBlocks = 0;
+            Debug.Log("Dialogue: E → телефон закрыт");
         }
         // Открытие E только чтение — forcedHit / MessageReplied не вызываем.
         LastReplyForcedHit = false;
         Refresh();
+    }
+
+    /// <summary>Скопировать текущий unread в openInbox до очистки.</summary>
+    void BeginInboxSession()
+    {
+        openInbox.Clear();
+        for (int i = 0; i < unread.Count; i++)
+            openInbox.Add(unread[i]);
     }
 
     /// <summary>
@@ -417,20 +439,31 @@ public class Dialogue : MonoBehaviour
             contact = ping.contact,
             text = ping.incoming
         });
-        // Уже смотрит в телефон — сразу «прочитано», без бормотания на приход.
+        var entry = MakeUnread(ping.id, ping.contact, ping.incoming, ping.heroMutter);
+        // Уже смотрит в телефон — сразу на экран сессии, без бормотания на приход.
         if (panelOpen)
-            scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
+        {
+            openInbox.Add(entry);
+            scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
+        }
         else
-            EnqueueUnread(ping.id, ping.heroMutter);
+            unread.Add(entry);
     }
 
-    void EnqueueUnread(string pingId, string heroMutter)
+    void EnqueueUnread(string pingId, string contact, string text, string heroMutter)
     {
-        unread.Add(new UnreadEntry
+        unread.Add(MakeUnread(pingId, contact, text, heroMutter));
+    }
+
+    static UnreadEntry MakeUnread(string pingId, string contact, string text, string heroMutter)
+    {
+        return new UnreadEntry
         {
             pingId = pingId ?? string.Empty,
+            contact = contact ?? string.Empty,
+            text = text ?? string.Empty,
             heroMutter = heroMutter ?? string.Empty
-        });
+        };
     }
 
     void RegisterCold(string contact)
@@ -449,15 +482,17 @@ public class Dialogue : MonoBehaviour
         // Прощание сразу в историю (пинг lev_farewell мог уже не успеть).
         if (contact == "lev")
         {
-            history.Add(new HistoryLine
-            {
-                contact = "lev",
-                text = "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye."
-            });
+            const string farewell =
+                "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye.";
+            history.Add(new HistoryLine { contact = "lev", text = farewell });
+            var entry = MakeUnread("lev_farewell_auto", "lev", farewell, string.Empty);
             if (panelOpen)
-                scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
+            {
+                openInbox.Add(entry);
+                scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
+            }
             else
-                EnqueueUnread("lev_farewell_auto", string.Empty);
+                unread.Add(entry);
         }
         Debug.Log($"Dialogue: контакт «{contact}» закрыт после {n} игноров.");
     }
@@ -517,6 +552,8 @@ public class Dialogue : MonoBehaviour
         panelOpen = false;
         waiting.Clear();
         unread.Clear();
+        openInbox.Clear();
+        scrollBlocks = 0;
         if (panel != null) panel.gameObject.SetActive(false);
         if (tab != null) tab.gameObject.SetActive(false);
     }
@@ -524,7 +561,7 @@ public class Dialogue : MonoBehaviour
     void Refresh()
     {
         bool hasActive = active != null;
-        bool showPanel = panelOpen && CanOpenPhone;
+        bool showPanel = panelOpen && (CanOpenPhone || openInbox.Count > 0);
         // Вкладка «входящее», если есть активный пинг, а панель ещё не открыта.
         if (tab != null)
         {
@@ -534,42 +571,87 @@ public class Dialogue : MonoBehaviour
         if (panel != null) panel.gameObject.SetActive(showPanel);
         if (!showPanel) return;
 
-        if (hasActive)
-            header.text = ContactTitle(active.contact);
-        else if (history.Count > 0)
-            header.text = ContactTitle(history[history.Count - 1].contact);
-        else
-            header.text = "Phone";
-
-        body.text = BuildHistoryText();
-        footer.text = history.Count > VisibleHistoryLines()
+        body.text = BuildInboxText();
+        int blocks = CountInboxBlocks();
+        footer.text = blocks > VisibleInboxBlocks
             ? "↑↓ scroll  ·  [E] close"
             : "[E] close";
     }
 
-    string BuildHistoryText()
+    /// <summary>
+    /// Только новые/unread: один блок на контакт (имя + текст + счётчик справа),
+    /// между пользователями — горизонтальный разделитель.
+    /// </summary>
+    string BuildInboxText()
     {
-        if (history.Count == 0) return string.Empty;
+        List<InboxBlock> blocks = BuildInboxBlocks();
+        if (blocks.Count == 0) return string.Empty;
 
-        int visible = VisibleHistoryLines();
-        int maxScroll = Mathf.Max(0, history.Count - visible);
-        scrollLines = Mathf.Clamp(scrollLines, 0, maxScroll);
-        int start = scrollLines;
-        int end = Mathf.Min(history.Count, start + visible);
+        int maxScroll = Mathf.Max(0, blocks.Count - VisibleInboxBlocks);
+        scrollBlocks = Mathf.Clamp(scrollBlocks, 0, maxScroll);
+        int start = scrollBlocks;
+        int end = Mathf.Min(blocks.Count, start + VisibleInboxBlocks);
 
         var builder = new System.Text.StringBuilder();
+        // ASCII: m5x7 без box-drawing глифов.
+        string sep = new string('-', InboxLineWidth);
         for (int i = start; i < end; i++)
         {
-            var line = history[i];
-            builder.Append(ContactTitle(line.contact));
-            builder.Append(": ");
-            builder.Append(line.text);
-            if (i < end - 1) builder.Append("\n\n");
+            InboxBlock block = blocks[i];
+            builder.Append(FormatNameLine(ContactTitle(block.contact), block.missed));
+            builder.Append('\n');
+            builder.Append(block.text);
+            if (i < end - 1)
+            {
+                builder.Append('\n');
+                builder.Append(sep);
+                builder.Append('\n');
+            }
         }
         return builder.ToString();
     }
 
-    static int VisibleHistoryLines() => 6;
+    int CountInboxBlocks() => BuildInboxBlocks().Count;
+
+    List<InboxBlock> BuildInboxBlocks()
+    {
+        var order = new List<string>();
+        var map = new Dictionary<string, InboxBlock>();
+        for (int i = 0; i < openInbox.Count; i++)
+        {
+            UnreadEntry entry = openInbox[i];
+            string key = entry.contact ?? string.Empty;
+            if (!map.TryGetValue(key, out InboxBlock block))
+            {
+                order.Add(key);
+                map[key] = new InboxBlock
+                {
+                    contact = key,
+                    text = entry.text ?? string.Empty,
+                    missed = 1
+                };
+            }
+            else
+            {
+                block.text = entry.text ?? string.Empty;
+                block.missed++;
+                map[key] = block;
+            }
+        }
+
+        var result = new List<InboxBlock>(order.Count);
+        for (int i = 0; i < order.Count; i++)
+            result.Add(map[order[i]]);
+        return result;
+    }
+
+    static string FormatNameLine(string title, int missed)
+    {
+        string right = missed.ToString();
+        int pad = InboxLineWidth - title.Length - right.Length;
+        if (pad < 1) pad = 1;
+        return title + new string(' ', pad) + right;
+    }
 
     void InitRelationDefaults()
     {
@@ -673,35 +755,77 @@ public class Dialogue : MonoBehaviour
         tab.color = new Color(0.85f, 0.9f, 0.95f, 0.95f);
         tab.gameObject.SetActive(false);
 
+        // Корпус телефона — спрайт; сообщения только в тёмной зоне экрана.
         var panelGo = new GameObject("PhonePanel");
         panelGo.transform.SetParent(canvasGo.transform, false);
         panel = panelGo.AddComponent<RectTransform>();
-        // Тёмный прямоугольник справа — один UI телефона на всю игру.
         panel.anchorMin = new Vector2(1f, 0.5f);
         panel.anchorMax = new Vector2(1f, 0.5f);
         panel.pivot = new Vector2(1f, 0.5f);
-        panel.sizeDelta = new Vector2(480f, 560f);
-        panel.anchoredPosition = new Vector2(-24f, 0f);
-        var background = panelGo.AddComponent<Image>();
-        background.color = new Color(0.05f, 0.05f, 0.07f, 0.92f);
-        background.raycastTarget = false;
+        // Соотношение спрайта ~505×820 (с ореолом).
+        panel.sizeDelta = new Vector2(420f, 682f);
+        panel.anchoredPosition = new Vector2(-20f, 0f);
 
-        header = MakeText(panel, "Header", 26, TextAnchor.UpperLeft);
-        Stretch(header.rectTransform, 20f, 18f, 20f, 500f);
-        header.color = new Color(0.78f, 0.84f, 0.9f);
-        header.fontStyle = FontStyle.Bold;
+        var frame = panelGo.AddComponent<Image>();
+        frame.raycastTarget = false;
+        frame.preserveAspect = true;
+        Sprite phoneSprite = LoadPhoneSprite();
+        if (phoneSprite != null)
+        {
+            frame.sprite = phoneSprite;
+            frame.color = Color.white;
+            frame.type = Image.Type.Simple;
+        }
+        else
+        {
+            // Fallback без ассета — тёмная плашка, чтобы телефон всё равно открывался.
+            frame.color = new Color(0.05f, 0.05f, 0.1f, 0.94f);
+        }
 
-        body = MakeText(panel, "Body", 22, TextAnchor.UpperLeft);
-        Stretch(body.rectTransform, 20f, 70f, 20f, 56f);
-        body.color = new Color(0.9f, 0.9f, 0.88f);
+        var screenGo = new GameObject("PhoneScreen");
+        screenGo.transform.SetParent(panel, false);
+        screenArea = screenGo.AddComponent<RectTransform>();
+        StretchFraction(screenArea, ScreenInsetL, ScreenInsetT, ScreenInsetR, ScreenInsetB);
+
+        body = MakeText(screenArea, "InboxBody", 20, TextAnchor.UpperLeft);
+        Stretch(body.rectTransform, 10f, 10f, 10f, 36f);
+        body.color = new Color(0.86f, 0.88f, 0.94f);
         body.horizontalOverflow = HorizontalWrapMode.Wrap;
         body.verticalOverflow = VerticalWrapMode.Truncate;
+        body.lineSpacing = 1.05f;
 
-        footer = MakeText(panel, "Footer", 18, TextAnchor.LowerLeft);
-        Stretch(footer.rectTransform, 20f, 520f, 20f, 16f);
-        footer.color = new Color(0.55f, 0.6f, 0.58f);
+        footer = MakeText(screenArea, "Footer", 16, TextAnchor.LowerLeft);
+        var footerRect = footer.rectTransform;
+        footerRect.anchorMin = new Vector2(0f, 0f);
+        footerRect.anchorMax = new Vector2(1f, 0f);
+        footerRect.pivot = new Vector2(0.5f, 0f);
+        footerRect.sizeDelta = new Vector2(-20f, 28f);
+        footerRect.anchoredPosition = new Vector2(0f, 8f);
+        footer.color = new Color(0.55f, 0.58f, 0.7f);
 
         panel.gameObject.SetActive(false);
+    }
+
+    /// <summary>Спрайт телефона из Resources; Point filter. Fallback — Texture2D → Sprite.Create.</summary>
+    static Sprite LoadPhoneSprite()
+    {
+        Sprite imported = Resources.Load<Sprite>(PhoneSpritePath);
+        Texture2D tex = imported != null ? imported.texture : Resources.Load<Texture2D>(PhoneSpritePath);
+        if (tex == null)
+        {
+            Debug.LogWarning("Dialogue: нет ассета Resources/" + PhoneSpritePath);
+            return null;
+        }
+
+        tex.filterMode = FilterMode.Point;
+        tex.wrapMode = TextureWrapMode.Clamp;
+        if (imported != null) return imported;
+
+        return Sprite.Create(
+            tex,
+            new Rect(0f, 0f, tex.width, tex.height),
+            new Vector2(0.5f, 0.5f),
+            100f);
     }
 
     static Text MakeText(Transform parent, string name, int size, TextAnchor anchor)
@@ -723,6 +847,15 @@ public class Dialogue : MonoBehaviour
         rect.anchorMax = Vector2.one;
         rect.offsetMin = new Vector2(left, bottom);
         rect.offsetMax = new Vector2(-right, -top);
+    }
+
+    /// <summary>Растянуть дочерний Rect долями родителя (экран внутри безеля).</summary>
+    static void StretchFraction(RectTransform rect, float left, float top, float right, float bottom)
+    {
+        rect.anchorMin = new Vector2(left, bottom);
+        rect.anchorMax = new Vector2(1f - right, 1f - top);
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 
     static string ContactTitle(string contact)
@@ -748,8 +881,17 @@ public class Dialogue : MonoBehaviour
     struct UnreadEntry
     {
         public string pingId;
+        public string contact;
+        public string text;
         /// <summary>Пусто для пингов 10+ — при открытии тишина, даже если раньше в unread были 1–9.</summary>
         public string heroMutter;
+    }
+
+    struct InboxBlock
+    {
+        public string contact;
+        public string text;
+        public int missed;
     }
 
     [Serializable]
