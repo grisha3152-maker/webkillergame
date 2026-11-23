@@ -7,8 +7,11 @@ public class Monster : MonoBehaviour
     [SerializeField] private float endSpeed = 35f;    // Медленное подкрадывание у игрока
     [SerializeField] private bool digitalTint = true;
 
-    /// <summary>Базовый масштаб букв комбо над головой (~0.25 от исходного — гораааздо меньше).</summary>
-    const float ComboLetterBaseScale = 0.25f;
+    /// <summary>
+    /// Базовый масштаб букв над головой. PPU букв = 100 (как Pig) → при 0.18 высота ~1.25 wu,
+    /// ряд из трёх — компактная «шапка», не гигантские буквы рядом с героем.
+    /// </summary>
+    const float ComboLetterBaseScale = 0.18f;
     /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
     const float ComboActiveScaleMul = 1.28f;
     /// <summary>
@@ -16,8 +19,10 @@ public class Monster : MonoBehaviour
     /// Шаг ряда — по визуальной ширине, не по полному rect со полями (иначе Z X C разлетаются).
     /// </summary>
     const float ComboLetterOpaqueWidthFrac = 0.36f;
-    /// <summary>Зазор между визуальными краями соседних букв (после PR #37 width-based; было 2 — слишком широко).</summary>
-    const float ComboLetterEdgeGap = 0.3f;
+    /// <summary>Плотный зазор между визуальными краями соседних букв (opaque-width шаг).</summary>
+    const float ComboLetterEdgeGap = 0.08f;
+    /// <summary>Зазор между макушкой призрака и низом букв (pivot по центру → halfH + clearance).</summary>
+    const float ComboHeadClearance = 0.35f;
     const int ComboSortingOrder = 40;
 
     private Transform playerTransform;
@@ -268,9 +273,10 @@ public class Monster : MonoBehaviour
             if (w > slotWidth) slotWidth = w;
         }
 
-        if (slotWidth < 1f)
-            // fallback: 1280/16×0.25×0.36×1.28 ≈ 9.2
-            slotWidth = 20f * ComboLetterOpaqueWidthFrac * ComboActiveScaleMul;
+        if (slotWidth < 0.05f)
+            // fallback: 1280/100 × opaque × base × active ≈ 1.06
+            slotWidth = (1280f / 100f) * ComboLetterOpaqueWidthFrac
+                * ComboLetterBaseScale * ComboActiveScaleMul;
 
         float spacing = slotWidth + ComboLetterEdgeGap;
         float totalWidth = (comboKeys.Length - 1) * spacing;
@@ -345,9 +351,32 @@ public class Monster : MonoBehaviour
     void PlaceComboLabel()
     {
         if (comboRoot == null) return;
-        float top = spriteRenderer != null ? spriteRenderer.bounds.max.y : transform.position.y + 40f;
-        // Ряд букв чуть выше макушки призрака (меньше offset под уменьшенный масштаб).
-        comboRoot.position = new Vector3(transform.position.x, top + 6f, 0f);
+
+        // Центр по bounds призрака — ряд строго над головой, не сбоку у героя.
+        float headX = spriteRenderer != null
+            ? spriteRenderer.bounds.center.x
+            : transform.position.x;
+        float top = spriteRenderer != null
+            ? spriteRenderer.bounds.max.y
+            : transform.position.y + 40f;
+
+        // Pivot букв по центру: поднимаем на halfH + clearance, чтобы низ ряда был над макушкой.
+        float halfH = 0f;
+        if (comboLetterRenderers != null)
+        {
+            for (int i = 0; i < comboLetterRenderers.Length; i++)
+            {
+                SpriteRenderer sr = comboLetterRenderers[i];
+                if (sr == null || !sr.enabled || sr.sprite == null) continue;
+                float h = sr.sprite.bounds.size.y * Mathf.Abs(sr.transform.localScale.y) * 0.5f;
+                if (h > halfH) halfH = h;
+            }
+        }
+
+        if (halfH < 0.01f)
+            halfH = (698f / 100f) * ComboLetterBaseScale * ComboActiveScaleMul * 0.5f;
+
+        comboRoot.position = new Vector3(headX, top + halfH + ComboHeadClearance, 0f);
     }
 
     void OnDestroy()
