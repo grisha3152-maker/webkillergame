@@ -60,7 +60,7 @@ public class DialoguePing
     /// <summary>Флаги, которые ставятся в момент прихода пинга (прошлое → будущее).</summary>
     public string[] set;
     public string incoming;
-    /// <summary>Короткая реплика под ГГ (не в чате). Только для пингов 1–9; пусто = без бормотания.</summary>
+    /// <summary>Реплика под ГГ при открытии телефона, если этот пинг — последний unread. Только 1–9; пусто = тишина.</summary>
     public string heroMutter;
     public DialoguePingChoice[] choices;
 }

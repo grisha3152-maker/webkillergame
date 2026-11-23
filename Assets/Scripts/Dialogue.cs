@@ -13,7 +13,7 @@ using UnityEngine.UI;
 /// E открывает историю (накопленные входящие) и/или активный пинг; timeScale не трогаем.
 /// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
 /// forcedHit на открытие E не ставится (ответов нет).
-/// При приходе пинга с heroMutter — GameEvents.HeroMutter (подпись под ГГ, не в чате).
+/// Бормотание под ГГ — только при открытии телефона с непрочитанными (последний unread 1–9).
 /// </summary>
 public class Dialogue : MonoBehaviour
 {
@@ -28,6 +28,8 @@ public class Dialogue : MonoBehaviour
     readonly Queue<DialoguePing> waiting = new Queue<DialoguePing>();
     /// <summary>Накопленные входящие сверху вниз; при закрытии панели не сбрасывается.</summary>
     readonly List<HistoryLine> history = new List<HistoryLine>();
+    /// <summary>Непрочитанные входящие (пришли при закрытом телефоне). Очищаются при открытии E.</summary>
+    readonly List<UnreadEntry> unread = new List<UnreadEntry>();
 
     DialoguePing active;
     int token;
@@ -133,6 +135,7 @@ public class Dialogue : MonoBehaviour
                 waiting.Clear();
                 offered.Clear();
                 history.Clear();
+                unread.Clear();
                 pendingIgnore = false;
                 panelOpen = false;
                 scrollLines = 0;
@@ -228,7 +231,9 @@ public class Dialogue : MonoBehaviour
             // Новое внизу: при открытии прокрутить к концу.
             scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
             string who = active != null ? active.id : "история";
-            Debug.Log($"Dialogue: E → панель открыта ({who}, строк={history.Count})");
+            Debug.Log($"Dialogue: E → панель открыта ({who}, строк={history.Count}, unread={unread.Count})");
+            // Бормотание один раз на это открытие по текущему набору непрочитанных.
+            MutterForLatestUnreadThenMarkRead();
         }
         else
         {
@@ -237,6 +242,22 @@ public class Dialogue : MonoBehaviour
         // Открытие E только чтение — forcedHit / MessageReplied не вызываем.
         LastReplyForcedHit = false;
         Refresh();
+    }
+
+    /// <summary>
+    /// При открытии телефона: если есть непрочитанные — бормотать только за последнего
+    /// (если у него есть heroMutter, пинги 1–9). С 10-го у последнего — тишина.
+    /// Весь текущий unread помечается прочитанным; повторно на том же наборе не спамим.
+    /// </summary>
+    void MutterForLatestUnreadThenMarkRead()
+    {
+        if (unread.Count == 0) return;
+
+        UnreadEntry latest = unread[unread.Count - 1];
+        unread.Clear();
+
+        if (!string.IsNullOrEmpty(latest.heroMutter))
+            GameEvents.HeroMutter(latest.heroMutter);
     }
 
     void PollArrivals()
@@ -297,11 +318,8 @@ public class Dialogue : MonoBehaviour
                 notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
 
             // Сигнал камере и прочим слушателям: пришло новое входящее.
+            // Бормотание здесь НЕ шлём — только при открытии телефона с unread.
             GameEvents.MessageArrived(next.contact);
-
-            // Бормотание под ГГ (пинги 1–9); с 10-го heroMutter пустой — тишина.
-            if (!string.IsNullOrEmpty(next.heroMutter))
-                GameEvents.HeroMutter(next.heroMutter);
 
             // Прощание (явный bye): закрываем контакт сразу, без штрафа «I'm busy».
             bool farewell = IsFarewellPing(next);
@@ -397,8 +415,20 @@ public class Dialogue : MonoBehaviour
             contact = ping.contact,
             text = ping.incoming
         });
+        // Уже смотрит в телефон — сразу «прочитано», без бормотания на приход.
         if (panelOpen)
             scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
+        else
+            EnqueueUnread(ping.id, ping.heroMutter);
+    }
+
+    void EnqueueUnread(string pingId, string heroMutter)
+    {
+        unread.Add(new UnreadEntry
+        {
+            pingId = pingId ?? string.Empty,
+            heroMutter = heroMutter ?? string.Empty
+        });
     }
 
     void RegisterCold(string contact)
@@ -424,6 +454,8 @@ public class Dialogue : MonoBehaviour
             });
             if (panelOpen)
                 scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());
+            else
+                EnqueueUnread("lev_farewell_auto", string.Empty);
         }
         Debug.Log($"Dialogue: контакт «{contact}» закрыт после {n} игноров.");
     }
@@ -482,6 +514,7 @@ public class Dialogue : MonoBehaviour
         pendingIgnore = false;
         panelOpen = false;
         waiting.Clear();
+        unread.Clear();
         if (panel != null) panel.gameObject.SetActive(false);
         if (tab != null) tab.gameObject.SetActive(false);
     }
@@ -708,6 +741,13 @@ public class Dialogue : MonoBehaviour
     {
         public string contact;
         public string text;
+    }
+
+    struct UnreadEntry
+    {
+        public string pingId;
+        /// <summary>Пусто для пингов 10+ — при открытии тишина, даже если раньше в unread были 1–9.</summary>
+        public string heroMutter;
     }
 
     [Serializable]
