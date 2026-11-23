@@ -354,7 +354,7 @@ public class RadialAimController : MonoBehaviour
 
     void OnGhostReachedHero()
     {
-        // Шаг 3: событие есть, штраф поворота подключим на шаге 5 через ту же цепочку.
+        // Штраф поворота и тень идут через OnHeroHit (GhostReachedHero вызывает HeroHit).
     }
 
     void OnGhostKilled(int _)

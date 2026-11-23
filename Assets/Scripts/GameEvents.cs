@@ -29,6 +29,8 @@ public static class GameEvents
     {
         Debug.Log("GhostReachedHero");
         OnGhostReachedHero?.Invoke();
+        // GDD: призрак дошёл до гг → попадание (тень в углу + штраф поворота).
+        HeroHit();
     }
 
     public static void HeroHit() => OnHeroHit?.Invoke();

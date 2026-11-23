@@ -21,6 +21,10 @@ public class ShadowManager : MonoBehaviour
 
     void Start()
     {
+        Balance.EnsureLoaded();
+        // Канон maxShadows из balance.json (GDD 15.3).
+        if (Balance.Data.maxShadows > 0)
+            maxShadows = Balance.Data.maxShadows;
         cam = Camera.main;
         if (cam != null) camBase = cam.transform.position;
         BuildVignette();

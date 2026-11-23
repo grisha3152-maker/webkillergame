@@ -155,7 +155,7 @@ public class Monster : MonoBehaviour
         if (Vector2.Distance(transform.position, center) > reach) return;
         resolved = true;
         ClearHitCombo();
-        // Шаг 3: только событие/лог, без тени (тени — шаг 4).
+        // Попадание по гг: GhostReachedHero → HeroHit → ShadowManager.AddShadow.
         GameEvents.GhostReachedHero();
         Destroy(gameObject);
     }
