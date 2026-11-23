@@ -7,12 +7,12 @@ public class Monster : MonoBehaviour
     [SerializeField] private float endSpeed = 35f;    // Медленное подкрадывание у игрока
     [SerializeField] private bool digitalTint = true;
 
-    /// <summary>Базовый масштаб букв комбо над головой.</summary>
-    const float ComboLetterBaseScale = 1f;
-    /// <summary>Текущая клавиша чуть крупнее остальных.</summary>
+    /// <summary>Базовый масштаб букв комбо над головой (~0.25 от исходного — гораааздо меньше).</summary>
+    const float ComboLetterBaseScale = 0.25f;
+    /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
     const float ComboActiveScaleMul = 1.28f;
-    /// <summary>Шаг между центрами букв (world units при PPU 16).</summary>
-    const float ComboLetterSpacing = 34f;
+    /// <summary>Шаг между центрами букв (пропорционально новому масштабу).</summary>
+    const float ComboLetterSpacing = 8.5f;
     const int ComboSortingOrder = 40;
 
     private Transform playerTransform;
@@ -314,8 +314,8 @@ public class Monster : MonoBehaviour
     {
         if (comboRoot == null) return;
         float top = spriteRenderer != null ? spriteRenderer.bounds.max.y : transform.position.y + 40f;
-        // Ряд букв чуть выше макушки призрака (как прежний TextMesh +18).
-        comboRoot.position = new Vector3(transform.position.x, top + 18f, 0f);
+        // Ряд букв чуть выше макушки призрака (меньше offset под уменьшенный масштаб).
+        comboRoot.position = new Vector3(transform.position.x, top + 6f, 0f);
     }
 
     void OnDestroy()
