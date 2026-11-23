@@ -8,10 +8,11 @@ public class Monster : MonoBehaviour
     [SerializeField] private bool digitalTint = true;
 
     /// <summary>
-    /// Базовый масштаб букв над головой. PPU букв = 100 (как Pig) → при 0.18 высота ~1.25 wu,
-    /// ряд из трёх — компактная «шапка», не гигантские буквы рядом с героем.
+    /// Высота неактивной буквы относительно высоты тела призрака (world bounds).
+    /// Circle scale ≈58.4 при Pig PPU 100 → тело ~558 wu; 0.24 ≈ читаемая «шапка», не на весь экран.
+    /// (Раньше localScale 0.18 при PPU 100 без учёта parent scale / halfH в local → буквы пропадали.)
     /// </summary>
-    const float ComboLetterBaseScale = 0.18f;
+    const float ComboLetterHeightFracOfBody = 0.24f;
     /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
     const float ComboActiveScaleMul = 1.28f;
     /// <summary>
@@ -19,10 +20,10 @@ public class Monster : MonoBehaviour
     /// Шаг ряда — по визуальной ширине, не по полному rect со полями (иначе Z X C разлетаются).
     /// </summary>
     const float ComboLetterOpaqueWidthFrac = 0.36f;
-    /// <summary>Плотный зазор между визуальными краями соседних букв (opaque-width шаг).</summary>
-    const float ComboLetterEdgeGap = 0.08f;
-    /// <summary>Зазор между макушкой/низом призрака и краем букв (pivot по центру → halfH + clearance).</summary>
-    const float ComboHeadClearance = 0.35f;
+    /// <summary>Зазор между визуальными краями соседних букв как доля высоты буквы.</summary>
+    const float ComboLetterEdgeGapFracOfHeight = 0.08f;
+    /// <summary>Зазор макушка/низ ↔ край букв как доля высоты тела.</summary>
+    const float ComboHeadClearanceFracOfBody = 0.04f;
     const int ComboSortingOrder = 40;
 
     private Transform playerTransform;
@@ -261,6 +262,27 @@ public class Monster : MonoBehaviour
         }
 
         EnsureLetterRendererCount(comboKeys.Length);
+        // Компенсируем scale призрака (≈58.4): localScale букв далее = world scale.
+        SyncComboRootCounterScale();
+
+        float bodyH = spriteRenderer != null
+            ? Mathf.Max(1f, spriteRenderer.bounds.size.y)
+            : 200f;
+        float targetInactiveH = bodyH * ComboLetterHeightFracOfBody;
+
+        // Базовый localScale так, чтобы высота спрайта (PPU 100) ≈ targetInactiveH в world.
+        float baseScale = 0f;
+        for (int i = 0; i < comboKeys.Length; i++)
+        {
+            Sprite measure = ComboLetterSprites.Get(comboKeys[i], saturated: true);
+            if (measure == null) continue;
+            float spriteH = Mathf.Max(0.01f, measure.bounds.size.y);
+            float s = targetInactiveH / spriteH;
+            if (s > baseScale) baseScale = s;
+        }
+
+        if (baseScale < 0.01f)
+            baseScale = targetInactiveH / (698f / 100f);
 
         // Шаг по визуальной ширине глифа × active-mul + edge gap (не полный PNG bounds — поля ~65%).
         float slotWidth = 0f;
@@ -269,18 +291,19 @@ public class Monster : MonoBehaviour
             Sprite measure = ComboLetterSprites.Get(comboKeys[i], saturated: true);
             if (measure == null) continue;
             float w = measure.bounds.size.x * ComboLetterOpaqueWidthFrac
-                * ComboLetterBaseScale * ComboActiveScaleMul;
+                * baseScale * ComboActiveScaleMul;
             if (w > slotWidth) slotWidth = w;
         }
 
         if (slotWidth < 0.05f)
-            // fallback: 1280/100 × opaque × base × active ≈ 1.06
             slotWidth = (1280f / 100f) * ComboLetterOpaqueWidthFrac
-                * ComboLetterBaseScale * ComboActiveScaleMul;
+                * baseScale * ComboActiveScaleMul;
 
-        float spacing = slotWidth + ComboLetterEdgeGap;
+        float spacing = slotWidth + targetInactiveH * ComboLetterEdgeGapFracOfHeight;
         float totalWidth = (comboKeys.Length - 1) * spacing;
         float startX = -totalWidth * 0.5f;
+
+        Material sharedMat = spriteRenderer != null ? spriteRenderer.sharedMaterial : null;
 
         for (int i = 0; i < comboKeys.Length; i++)
         {
@@ -304,22 +327,39 @@ public class Monster : MonoBehaviour
 
             sr.enabled = true;
             sr.sprite = sprite;
+            // Тот же lit-материал, что у призрака — иначе URP 2D может рисовать буквы чёрными.
+            if (sharedMat != null)
+                sr.sharedMaterial = sharedMat;
             // Одинаковый sorting у всех: раньше active +1 рисовал поверх и маскировал соседей при overlap.
             sr.sortingOrder = ComboSortingOrder;
 
-            // Grayscale уже в текстуре; тинт — запасной путь + чуть приглушаем неактивные.
+            // Grayscale уже осветлён в ComboLetterSprites; тинт — запасной путь без дополнительного затемнения.
             bool grayFallback = !isNext && ReferenceEquals(sprite, colorSprite);
             if (isNext)
                 sr.color = Color.white;
             else if (grayFallback)
-                sr.color = new Color(0.62f, 0.62f, 0.62f, 1f);
+                // Без gray-текстуры: светло-серый тинт, чтобы буквы читались на тёмной комнате.
+                sr.color = new Color(0.78f, 0.78f, 0.82f, 1f);
             else
-                sr.color = new Color(1f, 1f, 1f, 0.92f);
+                sr.color = Color.white;
 
-            float scale = ComboLetterBaseScale * (isNext ? ComboActiveScaleMul : 1f);
+            float scale = baseScale * (isNext ? ComboActiveScaleMul : 1f);
             sr.transform.localScale = new Vector3(scale, scale, 1f);
             sr.transform.localPosition = new Vector3(startX + i * spacing, 0f, 0f);
         }
+    }
+
+    /// <summary>
+    /// Инвертируем lossyScale родителя, чтобы localScale/позиции букв совпадали с world units.
+    /// </summary>
+    void SyncComboRootCounterScale()
+    {
+        if (comboRoot == null) return;
+        Vector3 ls = transform.lossyScale;
+        comboRoot.localScale = new Vector3(
+            1f / Mathf.Max(1e-4f, ls.x),
+            1f / Mathf.Max(1e-4f, ls.y),
+            1f);
     }
 
     void EnsureLetterRendererCount(int count)
@@ -352,6 +392,8 @@ public class Monster : MonoBehaviour
     {
         if (comboRoot == null) return;
 
+        SyncComboRootCounterScale();
+
         // Центр по X bounds призрака — ряд у тела, не сбоку у героя.
         float headX = spriteRenderer != null
             ? spriteRenderer.bounds.center.x
@@ -362,8 +404,12 @@ public class Monster : MonoBehaviour
         float bottom = spriteRenderer != null
             ? spriteRenderer.bounds.min.y
             : transform.position.y - 40f;
+        float bodyH = spriteRenderer != null
+            ? Mathf.Max(1f, spriteRenderer.bounds.size.y)
+            : 200f;
+        float clearance = bodyH * ComboHeadClearanceFracOfBody;
 
-        // Pivot букв по центру: halfH нужен и для «над», и для «под».
+        // halfH в world: после SyncComboRootCounterScale localScale букв ≈ world scale.
         float halfH = 0f;
         if (comboLetterRenderers != null)
         {
@@ -371,16 +417,17 @@ public class Monster : MonoBehaviour
             {
                 SpriteRenderer sr = comboLetterRenderers[i];
                 if (sr == null || !sr.enabled || sr.sprite == null) continue;
-                float h = sr.sprite.bounds.size.y * Mathf.Abs(sr.transform.localScale.y) * 0.5f;
+                // bounds после sync — world AABB; надёжнее, чем localScale × sprite без parent.
+                float h = sr.bounds.extents.y;
                 if (h > halfH) halfH = h;
             }
         }
 
         if (halfH < 0.01f)
-            halfH = (698f / 100f) * ComboLetterBaseScale * ComboActiveScaleMul * 0.5f;
+            halfH = bodyH * ComboLetterHeightFracOfBody * ComboActiveScaleMul * 0.5f;
 
         // По умолчанию — над макушкой.
-        float aboveY = top + halfH + ComboHeadClearance;
+        float aboveY = top + halfH + clearance;
         float letterTopIfAbove = aboveY + halfH;
 
         // Если верх букв уйдёт за orthographic top камеры — ставим ряд под призраком.
@@ -393,7 +440,7 @@ public class Monster : MonoBehaviour
         }
 
         float y = placeBelow
-            ? bottom - halfH - ComboHeadClearance
+            ? bottom - halfH - clearance
             : aboveY;
         comboRoot.position = new Vector3(headX, y, 0f);
     }

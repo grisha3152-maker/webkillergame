@@ -8,8 +8,8 @@ public static class ComboLetterSprites
 {
     const string ResourceFolder = "Sprites/Combo/";
     /// <summary>
-    /// PPU как у Pig (~100), не meta 16: иначе PNG 1280×698 даёт ~80 wu и буквы ×6 больше головы призрака.
-    /// Финальный размер ещё режется ComboLetterBaseScale в Monster.
+    /// PPU как у Pig (~100). Финальный world-размер задаёт Monster по высоте тела призрака
+    /// (с компенсацией Circle scale ≈58.4) — не хардкодить localScale «как будто parent = 1».
     /// </summary>
     const float PixelsPerUnit = 100f;
 
@@ -100,10 +100,11 @@ public static class ComboLetterSprites
             for (int col = 0; col < w; col++)
             {
                 Color32 c = pixels[(y + row) * srcW + (x + col)];
-                // Обесцвечивание: яркость по ITU-R BT.601, альфа без изменений.
-                byte lum = (byte)Mathf.Clamp(
-                    Mathf.RoundToInt(c.r * 0.299f + c.g * 0.587f + c.b * 0.114f),
-                    0, 255);
+                // Обесцвечивание ITU-R BT.601, затем подъём яркости:
+                // исходные Z/X/C тёмные (avg ~35–130) → на тёмной комнате «исчезают».
+                float lum01 = (c.r * 0.299f + c.g * 0.587f + c.b * 0.114f) / 255f;
+                float lifted = 0.42f + lum01 * 0.58f; // 0..1 → 0.42..1.0, inactive всё ещё читаемы
+                byte lum = (byte)Mathf.Clamp(Mathf.RoundToInt(lifted * 255f), 0, 255);
                 outPixels[row * w + col] = new Color32(lum, lum, lum, c.a);
             }
         }
