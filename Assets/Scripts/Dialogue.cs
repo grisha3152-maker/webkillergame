@@ -10,7 +10,8 @@ using UnityEngine.UI;
 /// <summary>
 /// Телефон: пинги из dialogue.json по at (сек после посадки).
 /// ГГ никогда не отвечает текстом — только чтение входящих (ignore-only).
-/// E открывает спрайт телефона; на экране — только непрочитанные (блоки по контакту).
+/// E открывает спрайт телефона; список контактов из history (не пустеет после прочтения).
+/// Счётчик справа — только непрочитанные/пропущенные за текущую сессию открытия.
 /// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
 /// forcedHit на открытие E не ставится (ответов нет).
 /// Бормотание под ГГ — при открытии телефона с непрочитанными (последний unread 1–9), ~1с после E.
@@ -45,15 +46,19 @@ public class Dialogue : MonoBehaviour
     readonly Dictionary<string, int> relations = new Dictionary<string, int>();
     readonly Dictionary<string, int> coldCounts = new Dictionary<string, int>();
     readonly Queue<DialoguePing> waiting = new Queue<DialoguePing>();
-    /// <summary>Полная история входящих (логика отношений); в UI не показываем старые.</summary>
+    /// <summary>Полная история входящих: список контактов и последний текст на экране телефона.</summary>
     readonly List<HistoryLine> history = new List<HistoryLine>();
     /// <summary>
     /// Непрочитанные при закрытом телефоне. Не истекают по времени и не вытесняются
     /// новыми пингами: пишутся сразу в PollArrivals (до очереди ignore), живут до
-    /// открытия E (копия в openInbox + clear) или HideAll.
+    /// открытия E (копия в openInbox + clear) или HideAll. Очистка unread не стирает
+    /// контактный список — он строится из history.
     /// </summary>
     readonly List<UnreadEntry> unread = new List<UnreadEntry>();
-    /// <summary>Снимок inbox на время открытой панели (unread на момент открытия + пришедшие пока смотрим).</summary>
+    /// <summary>
+    /// Снимок непрочитанных на время открытой панели (unread на момент открытия + пришедшие
+    /// пока смотрим). Даёт счётчик missed; сами блоки контактов — из history.
+    /// </summary>
     readonly List<UnreadEntry> openInbox = new List<UnreadEntry>();
 
     DialoguePing active;
@@ -230,11 +235,12 @@ public class Dialogue : MonoBehaviour
         if (pressedE)
             TogglePhone();
 
-        if (!panelOpen || openInbox.Count == 0) return;
+        if (!panelOpen) return;
         if (keyboard == null) return;
 
         // Скролл блоков контактов стрелками (без выбора реплик).
         int blockCount = CountInboxBlocks();
+        if (blockCount == 0) return;
         int maxScroll = Mathf.Max(0, blockCount - VisibleInboxBlocks);
         if (keyboard.upArrowKey.wasPressedThisFrame)
         {
@@ -259,10 +265,11 @@ public class Dialogue : MonoBehaviour
         panelOpen = !panelOpen;
         if (panelOpen)
         {
-            // Снимок непрочитанных на экран; бормотание + пометка прочитанным.
+            // Снимок unread → счётчики; список контактов остаётся из history после mark-read.
             BeginInboxSession();
             string who = active != null ? active.id : "inbox";
-            Debug.Log($"Dialogue: E → телефон открыт ({who}, inbox={openInbox.Count}, history={history.Count})");
+            Debug.Log(
+                $"Dialogue: E → телефон открыт ({who}, unreadSession={openInbox.Count}, history={history.Count}, contacts={CountInboxBlocks()})");
             // До clear unread: если в сессии есть lev_alive — через 5с стартуем ending.
             TryStartAliveEndingHold();
             MutterForLatestUnreadThenMarkRead();
@@ -347,7 +354,10 @@ public class Dialogue : MonoBehaviour
         GameManager.Instance.BeginAliveEnding();
     }
 
-    /// <summary>Скопировать текущий unread в openInbox до очистки.</summary>
+    /// <summary>
+    /// Снимок текущих unread в openInbox (счётчики / lev_alive / бормотание).
+    /// Список контактов на экране строится из history — очистка unread его не трогает.
+    /// </summary>
     void BeginInboxSession()
     {
         openInbox.Clear();
@@ -745,9 +755,8 @@ public class Dialogue : MonoBehaviour
     }
 
     /// <summary>
-    /// Только непрочитанные: один блок на контакт (имя + текст + счётчик справа),
-    /// между пользователями — горизонтальный разделитель. Старые прочитанные не показываем;
-    /// непрочитанные и их счётчики не выкидываем при новых пингах — только по E / HideAll.
+    /// Контакты из history (имя + последний текст), разделители между блоками.
+    /// Счётчик справа — только unread/missed текущей сессии (openInbox); после прочтения 0.
     /// </summary>
     string BuildInboxText()
     {
@@ -807,16 +816,44 @@ public class Dialogue : MonoBehaviour
 
     int CountInboxBlocks() => BuildInboxBlocks().Count;
 
+    /// <summary>
+    /// Блоки: все контакты из history (порядок первого появления, текст — последнее сообщение).
+    /// missed — сколько непрочитанных в openInbox для контакта (0 после mark-read / без новых).
+    /// </summary>
     List<InboxBlock> BuildInboxBlocks()
     {
         var order = new List<string>();
         var map = new Dictionary<string, InboxBlock>();
+
+        for (int i = 0; i < history.Count; i++)
+        {
+            HistoryLine line = history[i];
+            string key = line.contact ?? string.Empty;
+            if (!map.TryGetValue(key, out InboxBlock block))
+            {
+                order.Add(key);
+                map[key] = new InboxBlock
+                {
+                    contact = key,
+                    text = line.text ?? string.Empty,
+                    missed = 0
+                };
+            }
+            else
+            {
+                block.text = line.text ?? string.Empty;
+                map[key] = block;
+            }
+        }
+
+        // Счётчик unread/missed: снимок сессии + пришедшие пока телефон открыт.
         for (int i = 0; i < openInbox.Count; i++)
         {
             UnreadEntry entry = openInbox[i];
             string key = entry.contact ?? string.Empty;
             if (!map.TryGetValue(key, out InboxBlock block))
             {
+                // Fallback: сообщение должно уже быть в history через AppendHistory.
                 order.Add(key);
                 map[key] = new InboxBlock
                 {
@@ -827,7 +864,6 @@ public class Dialogue : MonoBehaviour
             }
             else
             {
-                block.text = entry.text ?? string.Empty;
                 block.missed++;
                 map[key] = block;
             }
@@ -841,6 +877,8 @@ public class Dialogue : MonoBehaviour
 
     static string FormatNameLine(string title, int missed)
     {
+        // Счётчик только для непрочитанных/пропущенных; прочитанные — без цифры справа.
+        if (missed <= 0) return title;
         string right = missed.ToString();
         int pad = InboxLineWidth - title.Length - right.Length;
         if (pad < 1) pad = 1;
