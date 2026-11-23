@@ -2,12 +2,13 @@ using UnityEngine;
 
 /// <summary>
 /// Мировая подпись под ГГ: короткая реплика при открытии телефона с непрочитанными (не в чате).
-/// Слушает GameEvents.OnHeroMutter (~1с после E с unread), гаснет за пару секунд.
+/// Слушает GameEvents.OnHeroMutter (~1с после E с unread); держится ~5с, затем гаснет.
 /// </summary>
 public class HeroMutterView : MonoBehaviour
 {
-    const float LifeSeconds = 2.2f;
-    const float FadeSeconds = 0.7f;
+    // Полный срок показа (с fade в конце) — текст должен успеть прочитаться.
+    const float LifeSeconds = 5f;
+    const float FadeSeconds = 0.8f;
 
     TextMesh mesh;
     Transform player;
@@ -87,8 +88,9 @@ public class HeroMutterView : MonoBehaviour
         mesh = go.AddComponent<TextMesh>();
         mesh.anchor = TextAnchor.UpperCenter;
         mesh.alignment = TextAlignment.Center;
-        mesh.characterSize = 14f;
-        mesh.fontSize = 42;
+        // Крупнее FloatingIncome: реплика под ГГ должна читаться, а не быть тонкой полоской.
+        mesh.characterSize = 28f;
+        mesh.fontSize = 64;
         mesh.color = baseColor;
         PixelFonts.Apply(mesh);
         var renderer = go.GetComponent<MeshRenderer>();
