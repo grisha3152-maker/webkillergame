@@ -7,8 +7,11 @@ using UnityEngine;
 public static class ComboLetterSprites
 {
     const string ResourceFolder = "Sprites/Combo/";
-    /// <summary>PPU fallback: ~1280px → ~80 world-units при 16; визуальный размер режется ComboLetterBaseScale в Monster.</summary>
-    const float PixelsPerUnit = 16f;
+    /// <summary>
+    /// PPU как у Pig (~100), не meta 16: иначе PNG 1280×698 даёт ~80 wu и буквы ×6 больше головы призрака.
+    /// Финальный размер ещё режется ComboLetterBaseScale в Monster.
+    /// </summary>
+    const float PixelsPerUnit = 100f;
 
     static readonly Dictionary<char, Sprite> ColorSprites = new Dictionary<char, Sprite>();
     static readonly Dictionary<char, Sprite> GraySprites = new Dictionary<char, Sprite>();
@@ -58,14 +61,11 @@ public static class ComboLetterSprites
             : new Rect(0f, 0f, tex.width, tex.height);
         // Sprite.Create ждёт нормализованный pivot (0..1).
         Vector2 pivot = new Vector2(0.5f, 0.5f);
-        float ppu = imported != null ? imported.pixelsPerUnit : PixelsPerUnit;
 
-        if (imported != null)
-            ColorSprites[key] = imported;
-        else
-            ColorSprites[key] = Sprite.Create(tex, rect, pivot, ppu);
+        // Всегда Create с нашим PPU — импортированный spritePixelsToUnits=16 игнорируем.
+        ColorSprites[key] = Sprite.Create(tex, rect, pivot, PixelsPerUnit);
 
-        Sprite gray = TryMakeGraySprite(tex, rect, pivot, ppu, key);
+        Sprite gray = TryMakeGraySprite(tex, rect, pivot, PixelsPerUnit, key);
         GraySprites[key] = gray != null ? gray : ColorSprites[key];
     }
 
