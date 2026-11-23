@@ -18,8 +18,15 @@ public class RadialAimController : MonoBehaviour
     Transform player;
     Collider2D playerCollider;
     SpriteRenderer playerSprite;
-    // Визуал прицела — только палочка (линия от героя по углу). Без кольца / сектора-заливки.
-    LineRenderer cursor;
+    // Визуал прицела — пиксельная рука на кончике дуги (hotspot = кончик пальца). Без LineRenderer-палочки.
+    SpriteRenderer handCursor;
+    const string HandSpritePath = "Sprites/hand-cursor";
+    /// <summary>Высота руки в долях ширины героя (мир большой: PPU 100 → нужен масштаб).</summary>
+    const float HandHeightInHeroWidths = 0.28f;
+    /// <summary>Pivot у кончика указательного пальца (нормализованный, y снизу).</summary>
+    static readonly Vector2 HandFingerPivot = new Vector2(0.514423f, 0.864865f);
+    const float HandPixelsPerUnit = 100f;
+    const int HandSortingOrder = 12;
 
     // Комбо удара: Space выбирает цель, Z/X/C добивают. Длина 2–4 кидается в момент старта удара (не при спавне).
     static readonly char[] ComboPool = { 'Z', 'X', 'C' };
@@ -39,7 +46,7 @@ public class RadialAimController : MonoBehaviour
             playerSprite = player.GetComponent<SpriteRenderer>();
         }
         aimRadius = MeasureAimRadius();
-        cursor = MakeStick("AimCursor", 12, 3.2f);
+        handCursor = MakeHandCursor("AimHand");
     }
 
     void OnEnable()
@@ -61,7 +68,7 @@ public class RadialAimController : MonoBehaviour
     void Update()
     {
         bool combat = GameManager.Instance == null || GameManager.Instance.AllowCombat;
-        if (cursor != null) cursor.enabled = combat;
+        if (handCursor != null) handCursor.enabled = combat;
         if (!combat)
         {
             // Бой выключен — активное комбо сбрасываем без вспышки.
@@ -71,7 +78,7 @@ public class RadialAimController : MonoBehaviour
 
         Vector2 origin = Origin();
         ReadAim();
-        DrawCursor(origin);
+        DrawHand(origin);
 
         // Единственный обработчик Space: только старт комбо. Мгновенного Kill / Attack / InstantHit нет.
         if (comboActive)
@@ -421,44 +428,60 @@ public class RadialAimController : MonoBehaviour
         return Vector2.zero;
     }
 
-    void DrawCursor(Vector2 origin)
+    /// <summary>
+    /// Рука на кончике прицела: pivot = кончик пальца совпадает с aim tip.
+    /// Спрайт смотрит вверх → поворот = currentAngle − 90°.
+    /// </summary>
+    void DrawHand(Vector2 origin)
     {
-        if (cursor == null) return;
+        if (handCursor == null) return;
         float rad = currentAngle * Mathf.Deg2Rad;
         Vector2 dir = new Vector2(Mathf.Cos(rad), Mathf.Sin(rad));
-        // Палочка от края героя до радиуса прицела — без дуги и без сектора.
-        float inner = Mathf.Max(HeroWidth() * 0.55f, aimRadius * 0.12f);
-        cursor.positionCount = 2;
-        cursor.SetPosition(0, origin + dir * inner);
-        cursor.SetPosition(1, origin + dir * aimRadius);
+        Vector2 tip = origin + dir * aimRadius;
+        handCursor.transform.position = tip;
+        // Указательный палец в спрайте вверх (90°); AWD: 0=право, 90=верх, 180=лево.
+        handCursor.transform.rotation = Quaternion.Euler(0f, 0f, currentAngle - AngleTop);
+        FitHandScale();
     }
 
-    LineRenderer MakeStick(string name, int order, float width)
+    void FitHandScale()
+    {
+        if (handCursor == null || handCursor.sprite == null) return;
+        float spriteH = handCursor.sprite.bounds.size.y;
+        if (spriteH < 0.0001f) return;
+        float targetH = Mathf.Max(24f, HeroWidth() * HandHeightInHeroWidths);
+        float s = targetH / spriteH;
+        handCursor.transform.localScale = new Vector3(s, s, 1f);
+    }
+
+    SpriteRenderer MakeHandCursor(string name)
     {
         var go = new GameObject(name);
         go.transform.SetParent(transform, false);
-        var line = go.AddComponent<LineRenderer>();
-        line.useWorldSpace = true;
-        line.loop = false;
-        line.widthMultiplier = width;
-        line.numCapVertices = 0;
-        line.sortingOrder = order;
-        line.material = LineMaterial();
-        var tint = new Color(0.78f, 0.88f, 0.98f, 0.85f);
-        line.startColor = tint;
-        line.endColor = tint;
-        line.positionCount = 2;
-        return line;
+        var sr = go.AddComponent<SpriteRenderer>();
+        sr.sprite = LoadHandSprite();
+        sr.sortingOrder = HandSortingOrder;
+        sr.color = Color.white;
+        if (sr.sprite == null)
+            Debug.LogWarning("RadialAimController: нет спрайта Resources/" + HandSpritePath);
+        return sr;
     }
 
-    static Material lineMaterial;
-
-    static Material LineMaterial()
+    /// <summary>Спрайт руки из Resources; Point filter; pivot на кончике пальца.</summary>
+    static Sprite LoadHandSprite()
     {
-        if (lineMaterial != null) return lineMaterial;
-        Shader shader = Shader.Find("Sprites/Default");
-        if (shader == null) shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
-        lineMaterial = shader != null ? new Material(shader) : new Material(Shader.Find("Hidden/InternalErrorShader"));
-        return lineMaterial;
+        Sprite imported = Resources.Load<Sprite>(HandSpritePath);
+        Texture2D tex = imported != null ? imported.texture : Resources.Load<Texture2D>(HandSpritePath);
+        if (tex == null) return null;
+
+        tex.filterMode = FilterMode.Point;
+        tex.wrapMode = TextureWrapMode.Clamp;
+
+        Rect rect = imported != null
+            ? imported.rect
+            : new Rect(0f, 0f, tex.width, tex.height);
+
+        // Всегда Create с hotspot на кончике пальца — meta pivot может не подхватиться без Editor.
+        return Sprite.Create(tex, rect, HandFingerPivot, HandPixelsPerUnit);
     }
 }
