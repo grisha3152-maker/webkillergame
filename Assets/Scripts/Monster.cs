@@ -21,7 +21,7 @@ public class Monster : MonoBehaviour
     const float ComboLetterOpaqueWidthFrac = 0.36f;
     /// <summary>Плотный зазор между визуальными краями соседних букв (opaque-width шаг).</summary>
     const float ComboLetterEdgeGap = 0.08f;
-    /// <summary>Зазор между макушкой призрака и низом букв (pivot по центру → halfH + clearance).</summary>
+    /// <summary>Зазор между макушкой/низом призрака и краем букв (pivot по центру → halfH + clearance).</summary>
     const float ComboHeadClearance = 0.35f;
     const int ComboSortingOrder = 40;
 
@@ -33,7 +33,7 @@ public class Monster : MonoBehaviour
     /// <summary>Заморожен захватом HitCombo (Space): не летит к герою, пока комбо активно.</summary>
     private bool movementFrozen;
 
-    /// <summary>Корень ряда спрайтов Z/X/C над головой (вместо Legacy TextMesh).</summary>
+    /// <summary>Корень ряда спрайтов Z/X/C у призрака (над или под — по месту у края камеры).</summary>
     private Transform comboRoot;
     private SpriteRenderer[] comboLetterRenderers;
     private char[] comboKeys;
@@ -207,7 +207,7 @@ public class Monster : MonoBehaviour
         return Vector2.Distance(transform.position, origin) <= hitRadius;
     }
 
-    /// <summary>Показать последовательность Z/X/C над головой; nextIndex — текущая ожидаемая клавиша.</summary>
+    /// <summary>Показать последовательность Z/X/C у призрака; nextIndex — текущая ожидаемая клавиша.</summary>
     public void ShowHitCombo(char[] keys, int nextIndex)
     {
         comboKeys = keys;
@@ -240,7 +240,7 @@ public class Monster : MonoBehaviour
     }
 
     /// <summary>
-    /// Обновить спрайты: всегда весь ряд (Z/X/C…) над призраком.
+    /// Обновить спрайты: всегда весь ряд (Z/X/C…); позиция — PlaceComboLabel.
     /// Текущая клавиша — полный цвет + чуть крупнее; остальные — grayscale, меньше, но видимые.
     /// </summary>
     void RefreshComboSprites()
@@ -352,15 +352,18 @@ public class Monster : MonoBehaviour
     {
         if (comboRoot == null) return;
 
-        // Центр по bounds призрака — ряд строго над головой, не сбоку у героя.
+        // Центр по X bounds призрака — ряд у тела, не сбоку у героя.
         float headX = spriteRenderer != null
             ? spriteRenderer.bounds.center.x
             : transform.position.x;
         float top = spriteRenderer != null
             ? spriteRenderer.bounds.max.y
             : transform.position.y + 40f;
+        float bottom = spriteRenderer != null
+            ? spriteRenderer.bounds.min.y
+            : transform.position.y - 40f;
 
-        // Pivot букв по центру: поднимаем на halfH + clearance, чтобы низ ряда был над макушкой.
+        // Pivot букв по центру: halfH нужен и для «над», и для «под».
         float halfH = 0f;
         if (comboLetterRenderers != null)
         {
@@ -376,7 +379,23 @@ public class Monster : MonoBehaviour
         if (halfH < 0.01f)
             halfH = (698f / 100f) * ComboLetterBaseScale * ComboActiveScaleMul * 0.5f;
 
-        comboRoot.position = new Vector3(headX, top + halfH + ComboHeadClearance, 0f);
+        // По умолчанию — над макушкой.
+        float aboveY = top + halfH + ComboHeadClearance;
+        float letterTopIfAbove = aboveY + halfH;
+
+        // Если верх букв уйдёт за orthographic top камеры — ставим ряд под призраком.
+        Camera cam = Camera.main;
+        bool placeBelow = false;
+        if (cam != null && cam.orthographic)
+        {
+            float camTop = cam.transform.position.y + cam.orthographicSize;
+            placeBelow = letterTopIfAbove > camTop;
+        }
+
+        float y = placeBelow
+            ? bottom - halfH - ComboHeadClearance
+            : aboveY;
+        comboRoot.position = new Vector3(headX, y, 0f);
     }
 
     void OnDestroy()
