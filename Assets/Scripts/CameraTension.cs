@@ -2,6 +2,7 @@ using UnityEngine;
 
 /// <summary>
 /// Зум камеры забега: медленно приближает (ortho ↓), на входящий пинг — резкий чуть zoom out.
+/// Возврат после пинга — с скоростью обычного tension-zoom, без рывка за ~0.7 с.
 /// Вешается на Main Camera через PrototypeBootstrap; SampleScene не правим.
 /// </summary>
 public class CameraTension : MonoBehaviour
@@ -19,8 +20,9 @@ public class CameraTension : MonoBehaviour
     float playSeconds = 480f;
     /// <summary>Доля startSize для скачка zoom out на пинг (из balance.cameraPingZoomOut).</summary>
     float pingKick = 0.08f;
-    /// <summary>Текущий добавочный ortho (zoom out), затухает после пинга.</summary>
+    /// <summary>Текущий добавочный ortho (zoom out), сходит со скоростью tension.</summary>
     float pingPunch;
+    /// <summary>Скорость схода punch (ortho/с) = темп обычного tension-zoom.</summary>
     float pingRecoverPerSec;
     bool running;
 
@@ -46,8 +48,10 @@ public class CameraTension : MonoBehaviour
         if (endSize >= startSize)
             endSize = startSize * 0.86f;
 
-        // Затухание punch ~0.7 с, чтобы отъезд был заметен и сразу шёл обратно.
-        pingRecoverPerSec = (startSize * pingKick) / 0.7f;
+        // Раньше: (startSize * pingKick) / 0.7f — полный возврат за ~0.7 с, рывок.
+        // Теперь: тот же ortho/с, что у tension (start→end за playSeconds).
+        float tensionRange = Mathf.Max(0.0001f, startSize - endSize);
+        pingRecoverPerSec = tensionRange * Mathf.Max(0.01f, zoomSpeed) / playSeconds;
         tension01 = 0f;
         pingPunch = 0f;
         ApplySize();
@@ -89,6 +93,7 @@ public class CameraTension : MonoBehaviour
         else
             tension01 = Mathf.Clamp01(tension01 + Time.deltaTime * (zoomSpeed / playSeconds));
 
+        // Сход punch только темпом tension — без отдельного «догоняющего» рывка.
         if (pingPunch > 0f)
             pingPunch = Mathf.MoveTowards(pingPunch, 0f, pingRecoverPerSec * Time.deltaTime);
 
