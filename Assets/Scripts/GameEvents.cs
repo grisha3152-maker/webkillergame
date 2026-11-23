@@ -24,7 +24,7 @@ public static class GameEvents
     public static event Action<string> OnMessageArrived;
     /// <summary>Автоигнор по таймеру (messageIgnoreSeconds) — пропущенное без ответа.</summary>
     public static event Action OnMessageIgnored;
-    /// <summary>Короткая реплика под ГГ при открытии телефона с unread (пинги 1–9); пустая строка не шлётся.</summary>
+    /// <summary>Короткая реплика под ГГ ~1с после открытия телефона с unread (пинги 1–9); пустая строка не шлётся.</summary>
     public static event Action<string> OnHeroMutter;
 
     public static void GhostKilled(int payout) => OnGhostKilled?.Invoke(payout);
