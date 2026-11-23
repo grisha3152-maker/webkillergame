@@ -13,6 +13,7 @@ using UnityEngine.UI;
 /// E открывает историю (накопленные входящие) и/или активный пинг; timeScale не трогаем.
 /// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
 /// forcedHit на открытие E не ставится (ответов нет).
+/// При приходе пинга с heroMutter — GameEvents.HeroMutter (подпись под ГГ, не в чате).
 /// </summary>
 public class Dialogue : MonoBehaviour
 {
@@ -298,6 +299,10 @@ public class Dialogue : MonoBehaviour
             // Сигнал камере и прочим слушателям: пришло новое входящее.
             GameEvents.MessageArrived(next.contact);
 
+            // Бормотание под ГГ (пинги 1–9); с 10-го heroMutter пустой — тишина.
+            if (!string.IsNullOrEmpty(next.heroMutter))
+                GameEvents.HeroMutter(next.heroMutter);
+
             // Прощание (явный bye): закрываем контакт сразу, без штрафа «I'm busy».
             bool farewell = IsFarewellPing(next);
             if (farewell)
@@ -415,7 +420,7 @@ public class Dialogue : MonoBehaviour
             history.Add(new HistoryLine
             {
                 contact = "lev",
-                text = "i won't write into a mute chat anymore. bye."
+                text = "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye."
             });
             if (panelOpen)
                 scrollLines = Mathf.Max(0, history.Count - VisibleHistoryLines());

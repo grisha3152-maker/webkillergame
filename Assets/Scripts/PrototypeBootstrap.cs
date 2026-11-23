@@ -18,6 +18,7 @@ public static class PrototypeBootstrap
         if (existing != null)
         {
             EnsureDialogue(existing.gameObject);
+            EnsureHeroMutter(existing.gameObject);
             EnsureCameraTension();
             return;
         }
@@ -28,6 +29,7 @@ public static class PrototypeBootstrap
         // Dialogue раньше MessengerSystem: Awake у Dialogue успевает до прокси-проверки.
         root.AddComponent<Dialogue>();
         root.AddComponent<MessengerSystem>();
+        root.AddComponent<HeroMutterView>();
         root.AddComponent<VisualProgression>();
         root.AddComponent<CutsceneController>();
         root.AddComponent<RadialAimController>();
@@ -42,6 +44,12 @@ public static class PrototypeBootstrap
         if (host.GetComponent<MessengerSystem>() == null)
             host.AddComponent<MessengerSystem>();
         Debug.Log("PrototypeBootstrap: Dialogue добавлен на существующий GameManager.");
+    }
+
+    static void EnsureHeroMutter(GameObject host)
+    {
+        if (Object.FindAnyObjectByType<HeroMutterView>() != null) return;
+        host.AddComponent<HeroMutterView>();
     }
 
     /// <summary>Зум на Main Camera без правки SampleScene.</summary>
