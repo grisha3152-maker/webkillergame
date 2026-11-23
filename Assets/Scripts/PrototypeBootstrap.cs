@@ -49,6 +49,11 @@ public static class PrototypeBootstrap
     {
         if (Object.FindAnyObjectByType<CameraTension>() != null) return;
         var cam = Camera.main;
+        if (cam == null)
+        {
+            var tagged = GameObject.FindGameObjectWithTag("MainCamera");
+            if (tagged != null) cam = tagged.GetComponent<Camera>();
+        }
         if (cam == null) return;
         cam.gameObject.AddComponent<CameraTension>();
     }

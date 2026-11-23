@@ -79,7 +79,7 @@ public class BalanceData
     public SpawnWeights spawnWeights = new SpawnWeights();
     /// <summary>К концу забега ortho = start × этот коэффициент (меньше = ближе).</summary>
     public float cameraEndSizeFactor = 0.86f;
-    /// <summary>Скачок tension назад (0..1) при входящем пинге — чуть zoom out.</summary>
+    /// <summary>Доля стартового ortho для скачка zoom out на входящий пинг (0.08 ≈ +8% size).</summary>
     public float cameraPingZoomOut = 0.08f;
 
     public float SectorHalfAngle => coneDegrees * 0.5f;

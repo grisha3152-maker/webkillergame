@@ -17,7 +17,11 @@ public class CameraTension : MonoBehaviour
     /// <summary>0 = весь кадр, 1 = максимум приближения к концу забега.</summary>
     float tension01;
     float playSeconds = 480f;
+    /// <summary>Доля startSize для скачка zoom out на пинг (из balance.cameraPingZoomOut).</summary>
     float pingKick = 0.08f;
+    /// <summary>Текущий добавочный ortho (zoom out), затухает после пинга.</summary>
+    float pingPunch;
+    float pingRecoverPerSec;
     bool running;
 
     void Awake()
@@ -25,6 +29,9 @@ public class CameraTension : MonoBehaviour
         cam = GetComponent<Camera>();
         if (cam == null) cam = Camera.main;
         if (cam == null) return;
+
+        // Pixel Perfect перезаписывает orthographicSize каждый кадр — для tension-зума гасим.
+        DisablePixelPerfectOn(cam.gameObject);
 
         Balance.EnsureLoaded();
         var bal = Balance.Data;
@@ -39,7 +46,10 @@ public class CameraTension : MonoBehaviour
         if (endSize >= startSize)
             endSize = startSize * 0.86f;
 
+        // Затухание punch ~0.7 с, чтобы отъезд был заметен и сразу шёл обратно.
+        pingRecoverPerSec = (startSize * pingKick) / 0.7f;
         tension01 = 0f;
+        pingPunch = 0f;
         ApplySize();
     }
 
@@ -61,21 +71,27 @@ public class CameraTension : MonoBehaviour
 
     void Start()
     {
-        var gm = GameManager.Instance;
-        if (gm == null) return;
-        if (gm.GameplayActive || gm.ClockRunning)
-            running = true;
+        TryCatchUpRunning();
     }
 
-    void Update()
+    void LateUpdate()
     {
-        if (!running || cam == null) return;
+        if (cam == null) return;
+        TryCatchUpRunning();
+        if (!running) return;
+
         var gm = GameManager.Instance;
         if (gm != null && (gm.IsPaused || gm.IsEnded)) return;
 
-        // Медленное приближение пропорционально длине забега.
-        float rate = zoomSpeed / playSeconds;
-        tension01 = Mathf.Clamp01(tension01 + Time.deltaTime * rate);
+        // Tension от часов забега — совпадает с Elapsed / пингами Dialogue.
+        if (gm != null && gm.ClockRunning)
+            tension01 = Mathf.Clamp01((gm.Elapsed / playSeconds) * Mathf.Max(0.01f, zoomSpeed));
+        else
+            tension01 = Mathf.Clamp01(tension01 + Time.deltaTime * (zoomSpeed / playSeconds));
+
+        if (pingPunch > 0f)
+            pingPunch = Mathf.MoveTowards(pingPunch, 0f, pingRecoverPerSec * Time.deltaTime);
+
         ApplySize();
     }
 
@@ -88,17 +104,41 @@ public class CameraTension : MonoBehaviour
         running = false;
     }
 
-    /// <summary>Новый входящий пинг — скачок zoom out, затем снова медленно внутрь.</summary>
+    /// <summary>Новый входящий пинг — абсолютный zoom out (видно даже при tension≈0).</summary>
     void OnPing(string contactId)
     {
         if (cam == null) return;
-        tension01 = Mathf.Max(0f, tension01 - pingKick);
+        // Раньше вычитали из tension01 — на ранних пингах (at=25s) kick обнулял tension без видимого скачка.
+        pingPunch = Mathf.Max(pingPunch, startSize * pingKick);
         ApplySize();
     }
 
     void ApplySize()
     {
         if (cam == null || !cam.orthographic) return;
-        cam.orthographicSize = Mathf.Lerp(startSize, endSize, tension01);
+        float baseSize = Mathf.Lerp(startSize, endSize, tension01);
+        cam.orthographicSize = baseSize + pingPunch;
+    }
+
+    void TryCatchUpRunning()
+    {
+        if (running) return;
+        var gm = GameManager.Instance;
+        if (gm != null && (gm.GameplayActive || gm.ClockRunning))
+            running = true;
+    }
+
+    static void DisablePixelPerfectOn(GameObject host)
+    {
+        if (host == null) return;
+        // Без жёсткой ссылки на URP-тип: ищем по имени на этой же камере.
+        var behaviours = host.GetComponents<Behaviour>();
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            var b = behaviours[i];
+            if (b == null || !b.enabled) continue;
+            if (b.GetType().Name != "PixelPerfectCamera") continue;
+            b.enabled = false;
+        }
     }
 }
