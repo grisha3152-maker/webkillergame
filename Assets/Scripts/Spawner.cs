@@ -8,22 +8,46 @@ public class MonsterSpawner : MonoBehaviour
 
     [Header("Настройки спавна")]
     [SerializeField] private float spawnDistance = 250f; // Расстояние появления за пределами экрана
+    // Старое поле инспектора — не удалять (GDD). Интервал берём из Balance.spawnEvery.
+    [SerializeField] private float spawnInterval = 1.5f;
 
     [Header("Направление")]
     [Tooltip("Старый 360° круг. Выключен для прототипа — спавн только слева/справа/сверху.")]
     [SerializeField] private bool useFullCircleSpawn = false;
 
     private float timer;
+    // Чтобы первый спавн после EnableCombat ждал полный интервал, а не срабатывал сразу.
+    private bool combatWasAllowed;
 
     private void Start()
     {
         Balance.EnsureLoaded();
+        // Пока бой выключен (титул/wipe) — таймер не тикает; первый призрак только после паузы.
+        timer = 0f;
+        combatWasAllowed = false;
+        // spawnInterval только для инспектора / совместимости YAML сцены.
+        _ = spawnInterval;
     }
 
     private void Update()
     {
         if (playerTransform == null || monsterPrefab == null) return;
-        if (GameManager.Instance != null && !GameManager.Instance.AllowCombat) return;
+
+        bool combat = GameManager.Instance == null || GameManager.Instance.AllowCombat;
+        if (!combat)
+        {
+            combatWasAllowed = false;
+            timer = 0f;
+            return;
+        }
+
+        // Фронт AllowCombat: сброс — без мгновенного спавна в кадр старта боя.
+        if (!combatWasAllowed)
+        {
+            combatWasAllowed = true;
+            timer = 0f;
+            return;
+        }
 
         timer += Time.deltaTime;
         if (timer >= CurrentInterval())
