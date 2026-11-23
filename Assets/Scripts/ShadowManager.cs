@@ -32,7 +32,7 @@ public class ShadowManager : MonoBehaviour
     /// <summary>Секунды с момента разблокировки виньетки (3-й игнор).</summary>
     float vignetteAge;
 
-    int shakeAfterKills = 10;
+    int shakeAfterKills = 20;
     float shakeMinAmp = 0.15f;
     float shakeMaxAmp = 7f;
     float shakeRampSeconds = 180f;
