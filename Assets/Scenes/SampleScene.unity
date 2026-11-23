@@ -167,6 +167,7 @@ MonoBehaviour:
   playerTransform: {fileID: 485442193}
   spawnInterval: 1.5
   spawnDistance: 947.9
+  useFullCircleSpawn: 0
 --- !u!1 &485442190
 GameObject:
   m_ObjectHideFlags: 0
@@ -825,6 +826,10 @@ PrefabInstance:
     - target: {fileID: 6650063943569468201, guid: efdb4c7fd03d2999d978bc00d2185a4e, type: 3}
       propertyPath: m_Name
       value: Circle
+      objectReference: {fileID: 0}
+    - target: {fileID: 6650063943569468201, guid: efdb4c7fd03d2999d978bc00d2185a4e, type: 3}
+      propertyPath: m_IsActive
+      value: 0
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
