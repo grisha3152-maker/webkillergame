@@ -284,7 +284,7 @@ public class Dialogue : MonoBehaviour
     {
         for (int i = 0; i < openInbox.Count; i++)
         {
-            if (openInbox[i] != null && openInbox[i].pingId == AlivePingId)
+            if (openInbox[i].pingId == AlivePingId)
                 return true;
         }
         return false;
