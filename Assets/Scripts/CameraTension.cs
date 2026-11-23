@@ -3,7 +3,9 @@ using UnityEngine;
 /// <summary>
 /// Зум камеры забега: медленно приближает (ortho ↓), на входящий пинг — резкий чуть zoom out.
 /// Возврат после пинга — с скоростью обычного tension-zoom, без рывка за ~0.7 с.
-/// Пейсинг: zoom-in и ping zoom-out только после N-го убийства (balance.zoomAfterKills).
+/// Пейсинг: zoom-in только после N-го убийства (balance.zoomAfterKills).
+/// Ping zoom-out — только после того, как tension zoom-in уже начался (tension01 &gt; 0);
+/// до этого ortho не двигается (никакого kick-back / punch с возвратом).
 /// Вешается на Main Camera через PrototypeBootstrap; SampleScene не правим.
 /// </summary>
 public class CameraTension : MonoBehaviour
@@ -29,12 +31,14 @@ public class CameraTension : MonoBehaviour
 
     /// <summary>Счётчик убийств призраков за забег.</summary>
     int killCount;
-    /// <summary>Порог: после скольких киллов разрешён tension / ping zoom.</summary>
+    /// <summary>Порог: после скольких киллов разрешён tension zoom-in.</summary>
     int zoomAfterKills = 3;
     /// <summary>Elapsed в момент разблокировки зума (3-й килл).</summary>
     float zoomUnlockElapsed = -1f;
 
     bool ZoomUnlocked => killCount >= zoomAfterKills;
+    /// <summary>Ping kick разрешён только когда приближение уже началось.</summary>
+    bool TensionZoomStarted => ZoomUnlocked && tension01 > 0f;
 
     void Awake()
     {
@@ -102,7 +106,7 @@ public class CameraTension : MonoBehaviour
         var gm = GameManager.Instance;
         if (gm != null && (gm.IsPaused || gm.IsEnded)) return;
 
-        // До 3-го килла: никакого приближения и никакого punch.
+        // До 3-го килла: никакого приближения и никакого punch — ortho стоит.
         if (!ZoomUnlocked)
         {
             tension01 = 0f;
@@ -121,6 +125,14 @@ public class CameraTension : MonoBehaviour
         }
         else
             tension01 = Mathf.Clamp01(tension01 + Time.deltaTime * (zoomSpeed / remain));
+
+        // Пока zoom-in ещё не сдвинул кадр — punch запрещён (иначе kick-back «в никуда»).
+        if (tension01 <= 0f)
+        {
+            pingPunch = 0f;
+            ApplySize();
+            return;
+        }
 
         // Сход punch только темпом tension — без отдельного «догоняющего» рывка.
         if (pingPunch > 0f)
@@ -148,10 +160,10 @@ public class CameraTension : MonoBehaviour
         }
     }
 
-    /// <summary>Новый входящий пинг — zoom out только после порога киллов.</summary>
+    /// <summary>Новый входящий пинг — zoom out только после старта tension zoom-in.</summary>
     void OnPing(string contactId)
     {
-        if (cam == null || !ZoomUnlocked) return;
+        if (cam == null || !TensionZoomStarted) return;
         // Раньше вычитали из tension01 — на ранних пингах (at=25s) kick обнулял tension без видимого скачка.
         pingPunch = Mathf.Max(pingPunch, startSize * pingKick);
         ApplySize();
