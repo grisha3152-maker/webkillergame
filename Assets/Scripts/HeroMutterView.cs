@@ -88,9 +88,9 @@ public class HeroMutterView : MonoBehaviour
         mesh = go.AddComponent<TextMesh>();
         mesh.anchor = TextAnchor.UpperCenter;
         mesh.alignment = TextAlignment.Center;
-        // Крупнее FloatingIncome: реплика под ГГ должна читаться, а не быть тонкой полоской.
-        mesh.characterSize = 28f;
-        mesh.fontSize = 64;
+        // Компактнее прежних 28/64: читаемо, но не перекрывает ноги ГГ.
+        mesh.characterSize = 18f;
+        mesh.fontSize = 48;
         mesh.color = baseColor;
         PixelFonts.Apply(mesh);
         var renderer = go.GetComponent<MeshRenderer>();
@@ -109,7 +109,8 @@ public class HeroMutterView : MonoBehaviour
             float bottom = player.position.y;
             if (col != null) bottom = col.bounds.min.y;
             else if (sr != null) bottom = sr.bounds.min.y;
-            pos = new Vector3(player.position.x, bottom - 28f, 0f);
+            // Ближе к ступням (было −28): меньше зазор под ГГ при уменьшенном шрифте.
+            pos = new Vector3(player.position.x, bottom - 12f, 0f);
         }
         else
         {
