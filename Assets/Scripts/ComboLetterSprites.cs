@@ -19,8 +19,13 @@ public static class ComboLetterSprites
     {
         EnsureLoaded();
         char upper = char.ToUpperInvariant(key);
-        var map = saturated ? ColorSprites : GraySprites;
-        return map.TryGetValue(upper, out var sprite) ? sprite : null;
+        if (saturated)
+            return ColorSprites.TryGetValue(upper, out var color) ? color : null;
+
+        // Неактивные всегда должны что-то вернуть: grayscale, иначе цветной (Monster гасит тинтом).
+        if (GraySprites.TryGetValue(upper, out var gray) && gray != null)
+            return gray;
+        return ColorSprites.TryGetValue(upper, out var fallback) ? fallback : null;
     }
 
     static void EnsureLoaded()

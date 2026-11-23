@@ -11,8 +11,8 @@ public class Monster : MonoBehaviour
     const float ComboLetterBaseScale = 0.25f;
     /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
     const float ComboActiveScaleMul = 1.28f;
-    /// <summary>Шаг между центрами букв (пропорционально новому масштабу).</summary>
-    const float ComboLetterSpacing = 8.5f;
+    /// <summary>Зазор между краями соседних букв (не центр–центр: иначе огромные PNG накрывают соседей).</summary>
+    const float ComboLetterEdgeGap = 2f;
     const int ComboSortingOrder = 40;
 
     private Transform playerTransform;
@@ -230,8 +230,8 @@ public class Monster : MonoBehaviour
     }
 
     /// <summary>
-    /// Обновить спрайты: текущая клавиша — полный цвет + крупнее;
-    /// остальные — grayscale / низкая насыщенность, обычный масштаб.
+    /// Обновить спрайты: всегда весь ряд (Z/X/C…) над призраком.
+    /// Текущая клавиша — полный цвет + чуть крупнее; остальные — grayscale, меньше, но видимые.
     /// </summary>
     void RefreshComboSprites()
     {
@@ -252,35 +252,60 @@ public class Monster : MonoBehaviour
 
         EnsureLetterRendererCount(comboKeys.Length);
 
-        float totalWidth = (comboKeys.Length - 1) * ComboLetterSpacing;
+        // Шаг по реальной ширине спрайта (с учётом active-mul), иначе буквы ~20wu при gap 8.5 накрывают друг друга.
+        float slotWidth = 0f;
+        for (int i = 0; i < comboKeys.Length; i++)
+        {
+            Sprite measure = ComboLetterSprites.Get(comboKeys[i], saturated: true);
+            if (measure == null) continue;
+            float w = measure.bounds.size.x * ComboLetterBaseScale * ComboActiveScaleMul;
+            if (w > slotWidth) slotWidth = w;
+        }
+
+        if (slotWidth < 1f)
+            slotWidth = 20f * ComboActiveScaleMul; // fallback под PNG 1280 / PPU 16 / scale 0.25
+
+        float spacing = slotWidth + ComboLetterEdgeGap;
+        float totalWidth = (comboKeys.Length - 1) * spacing;
         float startX = -totalWidth * 0.5f;
 
         for (int i = 0; i < comboKeys.Length; i++)
         {
             SpriteRenderer sr = comboLetterRenderers[i];
             bool isNext = i == comboNextIndex;
-            Sprite sprite = ComboLetterSprites.Get(comboKeys[i], saturated: isNext);
+            Sprite colorSprite = ComboLetterSprites.Get(comboKeys[i], saturated: true);
+            Sprite sprite = isNext
+                ? colorSprite
+                : ComboLetterSprites.Get(comboKeys[i], saturated: false);
 
-            // Если grayscale-текстура недоступна, Get всё равно вернёт цветной — гасим насыщенность тинтом.
-            if (sprite == null)
+            // Нет ассета — всё равно оставляем слот (пустой), не прячем ряд целиком.
+            if (sprite == null && colorSprite == null)
             {
                 sr.enabled = false;
+                sr.sprite = null;
                 continue;
             }
 
+            if (sprite == null)
+                sprite = colorSprite;
+
             sr.enabled = true;
             sr.sprite = sprite;
-            sr.sortingOrder = ComboSortingOrder + (isNext ? 1 : 0);
-            // Grayscale уже в текстуре; тинт — только запасной путь, если серый ассет = цветной.
-            Sprite colorSprite = ComboLetterSprites.Get(comboKeys[i], saturated: true);
+            // Одинаковый sorting у всех: раньше active +1 рисовал поверх и маскировал соседей при overlap.
+            sr.sortingOrder = ComboSortingOrder;
+
+            // Grayscale уже в текстуре; тинт — запасной путь + чуть приглушаем неактивные.
             bool grayFallback = !isNext && ReferenceEquals(sprite, colorSprite);
-            sr.color = grayFallback
-                ? new Color(0.55f, 0.55f, 0.55f, 0.9f)
-                : Color.white;
+            if (isNext)
+                sr.color = Color.white;
+            else if (grayFallback)
+                sr.color = new Color(0.62f, 0.62f, 0.62f, 1f);
+            else
+                sr.color = new Color(1f, 1f, 1f, 0.92f);
 
             float scale = ComboLetterBaseScale * (isNext ? ComboActiveScaleMul : 1f);
             sr.transform.localScale = new Vector3(scale, scale, 1f);
-            sr.transform.localPosition = new Vector3(startX + i * ComboLetterSpacing, 0f, 0f);
+            sr.transform.localPosition = new Vector3(startX + i * spacing, 0f, 0f);
         }
     }
 
