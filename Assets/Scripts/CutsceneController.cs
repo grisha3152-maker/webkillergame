@@ -17,6 +17,13 @@ public class CutsceneController : MonoBehaviour
     RectTransform titleBottomHalf;
     Text titleLabel;
     Text pressSpaceLabel;
+    // Narrative ending (Lev «are you even alive?»): cascade / black / space BR
+    GameObject aliveRoot;
+    Text aliveCascade;
+    Text aliveLine;
+    Text aliveLineBelow;
+    Text aliveSpacePlaque;
+    Image aliveBlack;
     AudioSource titleAudio;
     bool ending;
     // true после wipe / пропуска по U
@@ -79,6 +86,18 @@ public class CutsceneController : MonoBehaviour
         StopAllCoroutines();
         HideTitleSplash();
         StartCoroutine(Ending(quiet));
+    }
+
+    /// <summary>Ending после открытия последнего пинга Лева — слово-каскад и Space-цепочка.</summary>
+    public void PlayAliveEnding()
+    {
+        if (ending) return;
+        ending = true;
+        openingDone = true;
+        cutscenePlaying = false;
+        StopAllCoroutines();
+        HideTitleSplash();
+        StartCoroutine(AliveEnding());
     }
 
     // Скрыть титул и продолжить игру как после полного интро
@@ -223,29 +242,13 @@ public class CutsceneController : MonoBehaviour
     {
         if (captionRoot != null) captionRoot.SetActive(true);
         var player = GameObject.FindGameObjectWithTag("Player");
-        var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
-        for (int i = 0; i < monsters.Length; i++)
-        {
-            if (monsters[i] != null) Destroy(monsters[i].gameObject);
-        }
+        ClearMonsters();
 
         if (!quiet)
         {
             var shadows = FindAnyObjectByType<ShadowManager>();
             if (shadows != null) shadows.PlayCollapse();
-            if (player != null)
-            {
-                Quaternion from = player.transform.rotation;
-                Quaternion to = Quaternion.Euler(0f, 0f, 11f);
-                float t = 0f;
-                while (t < 2.2f)
-                {
-                    t += Time.deltaTime;
-                    player.transform.rotation = Quaternion.Slerp(from, to, Mathf.Clamp01(t / 2.2f));
-                    yield return null;
-                }
-            }
-            else yield return new WaitForSeconds(2.2f);
+            yield return LeanPlayerBack(player, 2.2f);
 
             yield return Show("Was it worth it?", 2.4f);
             yield return Show("Was it worth it?\n\nPress R", 0f, hold: true);
@@ -253,6 +256,177 @@ public class CutsceneController : MonoBehaviour
         else
         {
             yield return Show("The room is quiet. Nothing is asking him to stay.\n\nThis path continues in the full story.\n\nPress R", 0f, hold: true);
+        }
+    }
+
+    /// <summary>
+    /// Каскад слов → пауза → стоп typing / откинуться → «хороший вопрос.» → Space-цепочка.
+    /// 5с с открытым телефоном уже отсчитаны в Dialogue до вызова PlayAliveEnding.
+    /// </summary>
+    IEnumerator AliveEnding()
+    {
+        ClearMonsters();
+        if (captionRoot != null) captionRoot.SetActive(false);
+        if (hint != null) hint.gameObject.SetActive(false);
+        if (aliveRoot != null) aliveRoot.SetActive(true);
+        SetAliveBlack(false);
+        HideAliveLines();
+        if (aliveSpacePlaque != null) aliveSpacePlaque.gameObject.SetActive(false);
+
+        // Слова по центру, по 2с каждое.
+        string[] cascade = { "ты", "там", "вообще", "живой?" };
+        for (int i = 0; i < cascade.Length; i++)
+        {
+            if (aliveCascade != null)
+            {
+                aliveCascade.gameObject.SetActive(true);
+                aliveCascade.text = cascade[i];
+            }
+            yield return new WaitForSeconds(2f);
+            if (aliveCascade != null)
+            {
+                aliveCascade.text = string.Empty;
+                aliveCascade.gameObject.SetActive(false);
+            }
+        }
+
+        // После последнего слова — 10с тишины.
+        yield return new WaitForSeconds(10f);
+
+        var player = GameObject.FindGameObjectWithTag("Player");
+        StopTypingAnim(player);
+        yield return LeanPlayerBack(player, 2.2f);
+
+        if (aliveLine != null)
+        {
+            aliveLine.gameObject.SetActive(true);
+            aliveLine.text = "хороший вопрос.";
+        }
+        yield return new WaitForSeconds(3f);
+
+        // Плашка space справа снизу.
+        if (aliveSpacePlaque != null)
+        {
+            aliveSpacePlaque.text = "space";
+            aliveSpacePlaque.gameObject.SetActive(true);
+            PlayPressSpaceSound();
+        }
+        yield return WaitForSpace();
+
+        if (aliveSpacePlaque != null) aliveSpacePlaque.gameObject.SetActive(false);
+        if (aliveLine != null) aliveLine.text = "был ли я жив.. на самом деле?";
+        yield return new WaitForSeconds(2.2f);
+
+        if (aliveLine != null) aliveLine.text = "и";
+        yield return new WaitForSeconds(1.6f);
+
+        // Чёрный экран → стоило / оно / того?
+        HideAliveLines();
+        SetAliveBlack(true);
+        yield return new WaitForSeconds(0.4f);
+
+        if (aliveLine != null)
+        {
+            aliveLine.gameObject.SetActive(true);
+            aliveLine.text = "стоило";
+        }
+        if (aliveSpacePlaque != null)
+        {
+            aliveSpacePlaque.text = "space";
+            aliveSpacePlaque.gameObject.SetActive(true);
+        }
+        yield return WaitForSpace();
+
+        if (aliveLineBelow != null)
+        {
+            aliveLineBelow.gameObject.SetActive(true);
+            aliveLineBelow.text = "оно";
+        }
+        yield return WaitForSpace();
+
+        // «того?» под «оно»; Space больше не нужен.
+        if (aliveLineBelow != null)
+            aliveLineBelow.text = "оно\nтого?";
+        if (aliveSpacePlaque != null)
+        {
+            aliveSpacePlaque.text = "Press R";
+            aliveSpacePlaque.gameObject.SetActive(true);
+        }
+        // Держим кадр; R — рестарт (Update).
+        while (true)
+            yield return null;
+    }
+
+    static void ClearMonsters()
+    {
+        var monsters = FindObjectsByType<Monster>(FindObjectsSortMode.None);
+        for (int i = 0; i < monsters.Length; i++)
+        {
+            if (monsters[i] != null) Destroy(monsters[i].gameObject);
+        }
+    }
+
+    static void StopTypingAnim(GameObject player)
+    {
+        if (player == null) return;
+        var anim = player.GetComponent<Animator>();
+        if (anim != null)
+            anim.enabled = false;
+    }
+
+    static IEnumerator LeanPlayerBack(GameObject player, float seconds)
+    {
+        if (player == null)
+        {
+            yield return new WaitForSeconds(seconds);
+            yield break;
+        }
+        Quaternion from = player.transform.rotation;
+        Quaternion to = Quaternion.Euler(0f, 0f, 11f);
+        float t = 0f;
+        while (t < seconds)
+        {
+            t += Time.deltaTime;
+            player.transform.rotation = Quaternion.Slerp(from, to, Mathf.Clamp01(t / seconds));
+            yield return null;
+        }
+    }
+
+    IEnumerator WaitForSpace()
+    {
+        // Сброс кадра, чтобы не схлопнуть цепочку одним удержанием Space.
+        yield return null;
+        while (true)
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
+                yield break;
+            yield return null;
+        }
+    }
+
+    void SetAliveBlack(bool on)
+    {
+        if (aliveBlack != null)
+            aliveBlack.gameObject.SetActive(on);
+    }
+
+    void HideAliveLines()
+    {
+        if (aliveCascade != null)
+        {
+            aliveCascade.text = string.Empty;
+            aliveCascade.gameObject.SetActive(false);
+        }
+        if (aliveLine != null)
+        {
+            aliveLine.text = string.Empty;
+            aliveLine.gameObject.SetActive(false);
+        }
+        if (aliveLineBelow != null)
+        {
+            aliveLineBelow.text = string.Empty;
+            aliveLineBelow.gameObject.SetActive(false);
         }
     }
 
@@ -281,6 +455,7 @@ public class CutsceneController : MonoBehaviour
         titleAudio.spatialBlend = 0f;
 
         BuildTitleSplash(canvasGo.transform);
+        BuildAliveEndingUi(canvasGo.transform);
 
         // Сразу выключен: не должен мелькать на старте до Opening()
         captionRoot = new GameObject("Caption");
@@ -378,6 +553,79 @@ public class CutsceneController : MonoBehaviour
         pressGo.SetActive(false);
 
         titleRoot.SetActive(false);
+    }
+
+    // UI для Lev alive-ending: каскад по центру, линии, чёрный фон, space справа снизу.
+    void BuildAliveEndingUi(Transform canvas)
+    {
+        aliveRoot = new GameObject("AliveEnding");
+        aliveRoot.transform.SetParent(canvas, false);
+        var rootRect = aliveRoot.AddComponent<RectTransform>();
+        rootRect.anchorMin = Vector2.zero;
+        rootRect.anchorMax = Vector2.one;
+        rootRect.offsetMin = Vector2.zero;
+        rootRect.offsetMax = Vector2.zero;
+
+        var blackGo = new GameObject("Black");
+        blackGo.transform.SetParent(aliveRoot.transform, false);
+        var blackRect = blackGo.AddComponent<RectTransform>();
+        blackRect.anchorMin = Vector2.zero;
+        blackRect.anchorMax = Vector2.one;
+        blackRect.offsetMin = Vector2.zero;
+        blackRect.offsetMax = Vector2.zero;
+        aliveBlack = blackGo.AddComponent<Image>();
+        aliveBlack.color = Color.black;
+        aliveBlack.raycastTarget = false;
+        blackGo.SetActive(false);
+
+        aliveCascade = MakeAliveLabel(aliveRoot.transform, "Cascade", 72, new Vector2(0f, 20f), new Vector2(1200f, 160f));
+        aliveCascade.gameObject.SetActive(false);
+
+        aliveLine = MakeAliveLabel(aliveRoot.transform, "Line", 40, new Vector2(0f, 36f), new Vector2(1400f, 200f));
+        aliveLine.gameObject.SetActive(false);
+
+        aliveLineBelow = MakeAliveLabel(aliveRoot.transform, "LineBelow", 40, new Vector2(0f, -48f), new Vector2(1400f, 200f));
+        aliveLineBelow.gameObject.SetActive(false);
+
+        var spaceGo = new GameObject("SpacePlaque");
+        spaceGo.transform.SetParent(aliveRoot.transform, false);
+        var spaceRect = spaceGo.AddComponent<RectTransform>();
+        spaceRect.anchorMin = new Vector2(1f, 0f);
+        spaceRect.anchorMax = new Vector2(1f, 0f);
+        spaceRect.pivot = new Vector2(1f, 0f);
+        spaceRect.sizeDelta = new Vector2(220f, 56f);
+        spaceRect.anchoredPosition = new Vector2(-36f, 28f);
+        aliveSpacePlaque = spaceGo.AddComponent<Text>();
+        PixelFonts.Apply(aliveSpacePlaque);
+        aliveSpacePlaque.fontSize = 28;
+        aliveSpacePlaque.alignment = TextAnchor.MiddleRight;
+        aliveSpacePlaque.color = new Color(0.85f, 0.85f, 0.82f, 0.95f);
+        aliveSpacePlaque.text = "space";
+        aliveSpacePlaque.raycastTarget = false;
+        spaceGo.SetActive(false);
+
+        aliveRoot.SetActive(false);
+    }
+
+    static Text MakeAliveLabel(Transform parent, string name, int size, Vector2 anchored, Vector2 sizeDelta)
+    {
+        var go = new GameObject(name);
+        go.transform.SetParent(parent, false);
+        var rect = go.AddComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0.5f);
+        rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = sizeDelta;
+        rect.anchoredPosition = anchored;
+        var text = go.AddComponent<Text>();
+        PixelFonts.Apply(text);
+        text.fontSize = size;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(0.94f, 0.94f, 0.92f);
+        text.horizontalOverflow = HorizontalWrapMode.Wrap;
+        text.verticalOverflow = VerticalWrapMode.Overflow;
+        text.raycastTarget = false;
+        return text;
     }
 
     // Половинки на 50% высоты с швом по центру; пивот у внешнего края — wipe через anchoredPosition.

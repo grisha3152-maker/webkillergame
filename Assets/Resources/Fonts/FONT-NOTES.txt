@@ -1,0 +1,4 @@
+m5x7 — base Latin glyphs by Daniel Linssen (CC0).
+Cyrillic codepoints used by the Lev alive-ending captions were added from
+Press Start 2P (Copyright 2012 The Press Start 2P Project Authors,
+OFL-1.1, Reserved Font Name "Press Start 2P").

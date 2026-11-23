@@ -8,6 +8,10 @@ using UnityEngine.UI;
 public static class PixelFonts
 {
     const string ResourcePath = "Fonts/m5x7";
+    /// <summary>Кириллица для ending-каскада (глифы вшиты в m5x7.ttf).</summary>
+    const string CyrillicWarmup =
+        "тытамвообщеживойхорошийвопросбыллиявнасамомделеистоилооноготого?. " +
+        "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
 
     static Font cached;
 
@@ -27,6 +31,9 @@ public static class PixelFonts
             }
 
             ApplyPointFilter(cached);
+            // Прогрев кириллицы под типичные кегли ending UI.
+            WarmCyrillic(cached, 40);
+            WarmCyrillic(cached, 72);
             return cached;
         }
     }
@@ -38,6 +45,7 @@ public static class PixelFonts
         var font = M5x7;
         if (font == null) return;
         text.font = font;
+        WarmCyrillic(font, text.fontSize > 0 ? text.fontSize : 32);
     }
 
     /// <summary>Назначить m5x7 на TextMesh и материал рендерера.</summary>
@@ -50,6 +58,14 @@ public static class PixelFonts
         var renderer = mesh.GetComponent<MeshRenderer>();
         if (renderer != null && font.material != null)
             renderer.sharedMaterial = font.material;
+        ApplyPointFilter(font);
+        WarmCyrillic(font, mesh.fontSize > 0 ? mesh.fontSize : 32);
+    }
+
+    static void WarmCyrillic(Font font, int size)
+    {
+        if (font == null || size <= 0) return;
+        font.RequestCharactersInTexture(CyrillicWarmup, size, FontStyle.Normal);
         ApplyPointFilter(font);
     }
 
