@@ -39,7 +39,7 @@
   "vignetteFullAlpha": 0.72,
   "vignetteRampSeconds": 120,
   "zoomAfterKills": 3,
-  "shakeAfterKills": 10,
+  "shakeAfterKills": 20,
   "shakeMinAmp": 0.15,
   "shakeMaxAmp": 7,
   "shakeRampSeconds": 180

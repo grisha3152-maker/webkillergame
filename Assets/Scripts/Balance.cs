@@ -91,7 +91,7 @@ public class BalanceData
     /// <summary>Tension-zoom и ping zoom-out только после N-го убийства призрака.</summary>
     public int zoomAfterKills = 3;
     /// <summary>Тряска камеры начинается после N-го убийства.</summary>
-    public int shakeAfterKills = 10;
+    public int shakeAfterKills = 20;
     /// <summary>Стартовая амплитуда тряски (очень мелкая).</summary>
     public float shakeMinAmp = 0.15f;
     /// <summary>Потолок амплитуды тряски.</summary>
@@ -136,7 +136,7 @@ public class BalanceData
         if (vignetteFullAlpha <= 0f) vignetteFullAlpha = 0.72f;
         if (vignetteRampSeconds <= 0f) vignetteRampSeconds = 120f;
         if (zoomAfterKills <= 0) zoomAfterKills = 3;
-        if (shakeAfterKills <= 0) shakeAfterKills = 10;
+        if (shakeAfterKills <= 0) shakeAfterKills = 20;
         if (shakeMinAmp < 0f) shakeMinAmp = 0.15f;
         if (shakeMaxAmp <= 0f) shakeMaxAmp = 7f;
         if (shakeRampSeconds <= 0f) shakeRampSeconds = 180f;
