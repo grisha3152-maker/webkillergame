@@ -11,8 +11,13 @@ public class Monster : MonoBehaviour
     const float ComboLetterBaseScale = 0.25f;
     /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
     const float ComboActiveScaleMul = 1.28f;
-    /// <summary>Зазор между краями соседних букв (не центр–центр: иначе огромные PNG накрывают соседей).</summary>
-    const float ComboLetterEdgeGap = 2f;
+    /// <summary>
+    /// Доля bounds.width с непрозрачным глифом (Combo PNG ~1280×698, глиф ~450px ≈ 0.35).
+    /// Шаг ряда — по визуальной ширине, не по полному rect со полями (иначе Z X C разлетаются).
+    /// </summary>
+    const float ComboLetterOpaqueWidthFrac = 0.36f;
+    /// <summary>Зазор между визуальными краями соседних букв (после PR #37 width-based; было 2 — слишком широко).</summary>
+    const float ComboLetterEdgeGap = 0.3f;
     const int ComboSortingOrder = 40;
 
     private Transform playerTransform;
@@ -252,18 +257,20 @@ public class Monster : MonoBehaviour
 
         EnsureLetterRendererCount(comboKeys.Length);
 
-        // Шаг по реальной ширине спрайта (с учётом active-mul), иначе буквы ~20wu при gap 8.5 накрывают друг друга.
+        // Шаг по визуальной ширине глифа × active-mul + edge gap (не полный PNG bounds — поля ~65%).
         float slotWidth = 0f;
         for (int i = 0; i < comboKeys.Length; i++)
         {
             Sprite measure = ComboLetterSprites.Get(comboKeys[i], saturated: true);
             if (measure == null) continue;
-            float w = measure.bounds.size.x * ComboLetterBaseScale * ComboActiveScaleMul;
+            float w = measure.bounds.size.x * ComboLetterOpaqueWidthFrac
+                * ComboLetterBaseScale * ComboActiveScaleMul;
             if (w > slotWidth) slotWidth = w;
         }
 
         if (slotWidth < 1f)
-            slotWidth = 20f * ComboActiveScaleMul; // fallback под PNG 1280 / PPU 16 / scale 0.25
+            // fallback: 1280/16×0.25×0.36×1.28 ≈ 9.2
+            slotWidth = 20f * ComboLetterOpaqueWidthFrac * ComboActiveScaleMul;
 
         float spacing = slotWidth + ComboLetterEdgeGap;
         float totalWidth = (comboKeys.Length - 1) * spacing;
