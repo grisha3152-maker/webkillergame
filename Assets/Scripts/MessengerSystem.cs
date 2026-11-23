@@ -6,7 +6,8 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Совместимость с RadialAimController.ChoiceIsOpen.
-/// Если в сцене есть Dialogue — только прокси ChoicePending, свой UI не строим.
+/// Если в сцене есть Dialogue — только прокси ChoicePending, свой UI не строим
+/// (телефон/inbox рисует Dialogue со спрайтом phone.png).
 /// </summary>
 public class MessengerSystem : MonoBehaviour
 {
