@@ -48,8 +48,9 @@ public class Dialogue : MonoBehaviour
     /// <summary>Полная история входящих (логика отношений); в UI не показываем старые.</summary>
     readonly List<HistoryLine> history = new List<HistoryLine>();
     /// <summary>
-    /// Непрочитанные при закрытом телефоне. Не истекают по времени —
-    /// живут до открытия E (копия в openInbox + clear) или HideAll.
+    /// Непрочитанные при закрытом телефоне. Не истекают по времени и не вытесняются
+    /// новыми пингами: пишутся сразу в PollArrivals (до очереди ignore), живут до
+    /// открытия E (копия в openInbox + clear) или HideAll.
     /// </summary>
     readonly List<UnreadEntry> unread = new List<UnreadEntry>();
     /// <summary>Снимок inbox на время открытой панели (unread на момент открытия + пришедшие пока смотрим).</summary>
@@ -402,6 +403,7 @@ public class Dialogue : MonoBehaviour
         if (pings == null) return;
 
         SyncDerivedFlags();
+        bool delivered = false;
         for (int i = 0; i < pings.Length; i++)
         {
             var ping = pings[i];
@@ -413,11 +415,46 @@ public class Dialogue : MonoBehaviour
             if (!RequiresMet(ping)) continue;
 
             offered.Add(ping.id);
+            // Сразу в unread/history: очередь ignore больше не должна «съедать» контакт.
+            // Старые блоки и счётчики живут рядом с новыми до открытия E.
+            DeliverIncoming(ping);
             waiting.Enqueue(ping);
+            delivered = true;
         }
 
         if (active == null)
             OpenNext();
+        else if (delivered)
+            Refresh(); // Новый unread при уже активном пинге — обновить вкладку/панель.
+    }
+
+    /// <summary>
+    /// Доставка входящего в inbox в момент due (at), до сериализации ignore-таймера.
+    /// Так OpenNext continue (closed / requires / опоздание) не выкидывает контакт из unread.
+    /// </summary>
+    void DeliverIncoming(DialoguePing ping)
+    {
+        if (ping == null) return;
+
+        AppendHistory(ping);
+        ApplyFlags(ping.set);
+
+        if (!firstPingLogged)
+        {
+            firstPingLogged = true;
+            Debug.Log($"Dialogue: первый пинг «{ping.id}» от {ping.contact} at={ping.at:0}s (playTime={playTime:0.0}s). Жми E.");
+        }
+        else
+        {
+            Debug.Log($"Dialogue: пинг «{ping.id}» ({ping.contact}) → unread={unread.Count}, openInbox={openInbox.Count}. E открывает чтение.");
+        }
+
+        if (notify != null && GeneratedAudio.Notification != null)
+            notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
+
+        // Сигнал камере и прочим слушателям: пришло новое входящее.
+        // Бормотание здесь НЕ шлём — только при открытии телефона с unread.
+        GameEvents.MessageArrived(ping.contact);
     }
 
     void OpenNext()
@@ -425,8 +462,8 @@ public class Dialogue : MonoBehaviour
         while (waiting.Count > 0)
         {
             var next = waiting.Dequeue();
-            // Опоздавшие в очереди НЕ сбрасываем: unread-блок контакта должен
-            // дойти до телефона и жить до открытия E (счётчик пропусков тоже).
+            // Inbox уже пополнен в DeliverIncoming. Здесь только active/ignore-таймер.
+            // Опоздавшие / закрытые / requires — НЕ трогаем unread (блоки и счётчики остаются).
             if (closed.Contains(next.contact) && next.id != AlivePingId)
                 continue;
             SyncDerivedFlags();
@@ -436,27 +473,7 @@ public class Dialogue : MonoBehaviour
             active = next;
             pendingIgnore = true;
             // Панель сама не всплывает — только вкладка, пока игрок не нажмёт E.
-            // Исключение: прощание без ожидания ответа — сразу в историю и закрыть контакт.
             token++;
-            AppendHistory(next);
-            ApplyFlags(next.set);
-
-            if (!firstPingLogged)
-            {
-                firstPingLogged = true;
-                Debug.Log($"Dialogue: первый пинг «{next.id}» от {next.contact} at={next.at:0}s (playTime={playTime:0.0}s). Жми E.");
-            }
-            else
-            {
-                Debug.Log($"Dialogue: пинг «{next.id}» ({next.contact}), E открывает чтение.");
-            }
-
-            if (notify != null && GeneratedAudio.Notification != null)
-                notify.PlayOneShot(GeneratedAudio.Notification, 0.7f);
-
-            // Сигнал камере и прочим слушателям: пришло новое входящее.
-            // Бормотание здесь НЕ шлём — только при открытии телефона с unread.
-            GameEvents.MessageArrived(next.contact);
 
             // Прощание (явный bye): закрываем контакт сразу, без штрафа «I'm busy».
             bool farewell = IsFarewellPing(next);
@@ -681,11 +698,19 @@ public class Dialogue : MonoBehaviour
     {
         bool hasActive = active != null;
         bool showPanel = panelOpen && (CanOpenPhone || openInbox.Count > 0);
-        // Вкладка «входящее», если есть активный пинг, а панель ещё не открыта.
+        // Вкладка: активный пинг ИЛИ накопленный unread — не гасим, когда таймер ignore
+        // сменил контакт / закончился: старые непрочитанные всё ещё ждут E.
         if (tab != null)
         {
-            tab.gameObject.SetActive(hasActive && !panelOpen && pendingIgnore);
-            if (hasActive) tab.text = ContactTitle(active.contact) + "\n[E]";
+            bool showTab = !panelOpen && ((hasActive && pendingIgnore) || unread.Count > 0);
+            tab.gameObject.SetActive(showTab);
+            if (showTab)
+            {
+                if (hasActive && pendingIgnore)
+                    tab.text = ContactTitle(active.contact) + "\n[E]";
+                else
+                    tab.text = UnreadTabLabel();
+            }
         }
         if (panel != null) panel.gameObject.SetActive(showPanel);
         if (!showPanel) return;
@@ -697,10 +722,32 @@ public class Dialogue : MonoBehaviour
             : "[E] close";
     }
 
+    /// <summary>Подпись вкладки, когда active уже снят, но unread ещё не открыт.</summary>
+    string UnreadTabLabel()
+    {
+        int contacts = CountUnreadContacts();
+        if (contacts <= 0) return "[E]";
+        if (contacts == 1 && unread.Count > 0)
+            return ContactTitle(unread[unread.Count - 1].contact) + "\n[E]";
+        return contacts + " new\n[E]";
+    }
+
+    int CountUnreadContacts()
+    {
+        var seen = new HashSet<string>();
+        for (int i = 0; i < unread.Count; i++)
+        {
+            string key = unread[i].contact ?? string.Empty;
+            if (!seen.Contains(key))
+                seen.Add(key);
+        }
+        return seen.Count;
+    }
+
     /// <summary>
     /// Только непрочитанные: один блок на контакт (имя + текст + счётчик справа),
-    /// между пользователями — горизонтальный разделитель. Старые прочитанные не показываем,
-    /// но непрочитанные не выкидываем, пока игрок не откроет телефон.
+    /// между пользователями — горизонтальный разделитель. Старые прочитанные не показываем;
+    /// непрочитанные и их счётчики не выкидываем при новых пингах — только по E / HideAll.
     /// </summary>
     string BuildInboxText()
     {
