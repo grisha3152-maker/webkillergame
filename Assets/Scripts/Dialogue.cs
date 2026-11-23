@@ -18,13 +18,16 @@ using UnityEngine.UI;
 public class Dialogue : MonoBehaviour
 {
     const string PhoneSpritePath = "Sprites/Phone/phone";
-    /// <summary>Отступы тёмного экрана внутри спрайта телефона (доля ширины/высоты).</summary>
-    const float ScreenInsetL = 0.093f;
-    const float ScreenInsetR = 0.095f;
-    const float ScreenInsetT = 0.121f;
-    const float ScreenInsetB = 0.062f;
-    const int InboxLineWidth = 26;
-    const int VisibleInboxBlocks = 4;
+    /// <summary>Отступы тёмного экрана внутри спрайта (доля; спрайт обрезан по корпусу ~515×824).</summary>
+    const float ScreenInsetL = 0.110f;
+    const float ScreenInsetR = 0.114f;
+    const float ScreenInsetT = 0.078f;
+    const float ScreenInsetB = 0.078f;
+    /// <summary>Ширина строки имени+счётчика в символах m5x7 (умещается в экран).</summary>
+    const int InboxLineWidth = 18;
+    const int VisibleInboxBlocks = 3;
+    const int InboxFontSize = 16;
+    const int FooterFontSize = 14;
 
     [SerializeField] TextAsset dialogueJson;
 
@@ -37,7 +40,10 @@ public class Dialogue : MonoBehaviour
     readonly Queue<DialoguePing> waiting = new Queue<DialoguePing>();
     /// <summary>Полная история входящих (логика отношений); в UI не показываем старые.</summary>
     readonly List<HistoryLine> history = new List<HistoryLine>();
-    /// <summary>Непрочитанные при закрытом телефоне. Копируются в openInbox и очищаются при E.</summary>
+    /// <summary>
+    /// Непрочитанные при закрытом телефоне. Не истекают по времени —
+    /// живут до открытия E (копия в openInbox + clear) или HideAll.
+    /// </summary>
     readonly List<UnreadEntry> unread = new List<UnreadEntry>();
     /// <summary>Снимок inbox на время открытой панели (unread на момент открытия + пришедшие пока смотрим).</summary>
     readonly List<UnreadEntry> openInbox = new List<UnreadEntry>();
@@ -309,9 +315,8 @@ public class Dialogue : MonoBehaviour
         while (waiting.Count > 0)
         {
             var next = waiting.Dequeue();
-            // Опоздавший пинг сгорает, если висел в очереди слишком долго.
-            if (playTime > next.at + ignoreSeconds)
-                continue;
+            // Опоздавшие в очереди НЕ сбрасываем: unread-блок контакта должен
+            // дойти до телефона и жить до открытия E (счётчик пропусков тоже).
             if (closed.Contains(next.contact))
                 continue;
             SyncDerivedFlags();
@@ -579,8 +584,9 @@ public class Dialogue : MonoBehaviour
     }
 
     /// <summary>
-    /// Только новые/unread: один блок на контакт (имя + текст + счётчик справа),
-    /// между пользователями — горизонтальный разделитель.
+    /// Только непрочитанные: один блок на контакт (имя + текст + счётчик справа),
+    /// между пользователями — горизонтальный разделитель. Старые прочитанные не показываем,
+    /// но непрочитанные не выкидываем, пока игрок не откроет телефон.
     /// </summary>
     string BuildInboxText()
     {
@@ -600,13 +606,40 @@ public class Dialogue : MonoBehaviour
             InboxBlock block = blocks[i];
             builder.Append(FormatNameLine(ContactTitle(block.contact), block.missed));
             builder.Append('\n');
-            builder.Append(block.text);
+            builder.Append(WrapInboxLine(block.text ?? string.Empty));
             if (i < end - 1)
             {
                 builder.Append('\n');
                 builder.Append(sep);
                 builder.Append('\n');
             }
+        }
+        return builder.ToString();
+    }
+
+    /// <summary>Жёсткий перенос длинных реплик, чтобы не вылезали за безель.</summary>
+    static string WrapInboxLine(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text.Length <= InboxLineWidth)
+            return text;
+
+        var builder = new System.Text.StringBuilder();
+        int i = 0;
+        while (i < text.Length)
+        {
+            int remaining = text.Length - i;
+            int take = Mathf.Min(InboxLineWidth, remaining);
+            if (take < remaining)
+            {
+                // Предпочитаем разрыв по пробелу внутри окна.
+                int split = text.LastIndexOf(' ', i + take - 1, take);
+                if (split >= i) take = split - i + 1;
+            }
+            if (take <= 0) take = 1;
+            builder.Append(text, i, take);
+            i += take;
+            while (i < text.Length && text[i] == ' ') i++;
+            if (i < text.Length) builder.Append('\n');
         }
         return builder.ToString();
     }
@@ -762,9 +795,9 @@ public class Dialogue : MonoBehaviour
         panel.anchorMin = new Vector2(1f, 0.5f);
         panel.anchorMax = new Vector2(1f, 0.5f);
         panel.pivot = new Vector2(1f, 0.5f);
-        // Соотношение спрайта ~505×820 (с ореолом).
-        panel.sizeDelta = new Vector2(420f, 682f);
-        panel.anchoredPosition = new Vector2(-20f, 0f);
+        // Спрайт обрезан по корпусу ~515×824 (без пустого квадратного холста).
+        panel.sizeDelta = new Vector2(400f, 640f);
+        panel.anchoredPosition = new Vector2(-24f, 0f);
 
         var frame = panelGo.AddComponent<Image>();
         frame.raycastTarget = false;
@@ -775,6 +808,10 @@ public class Dialogue : MonoBehaviour
             frame.sprite = phoneSprite;
             frame.color = Color.white;
             frame.type = Image.Type.Simple;
+            // Подгоняем панель под реальный aspect спрайта, чтобы insets совпали с безелем.
+            float aspect = phoneSprite.rect.width / Mathf.Max(1f, phoneSprite.rect.height);
+            float height = panel.sizeDelta.y;
+            panel.sizeDelta = new Vector2(height * aspect, height);
         }
         else
         {
@@ -786,22 +823,27 @@ public class Dialogue : MonoBehaviour
         screenGo.transform.SetParent(panel, false);
         screenArea = screenGo.AddComponent<RectTransform>();
         StretchFraction(screenArea, ScreenInsetL, ScreenInsetT, ScreenInsetR, ScreenInsetB);
+        // Клип: текст не рисуется поверх безеля/комнаты.
+        screenGo.AddComponent<RectMask2D>();
 
-        body = MakeText(screenArea, "InboxBody", 20, TextAnchor.UpperLeft);
-        Stretch(body.rectTransform, 10f, 10f, 10f, 36f);
+        body = MakeText(screenArea, "InboxBody", InboxFontSize, TextAnchor.UpperLeft);
+        Stretch(body.rectTransform, 8f, 8f, 8f, 30f);
         body.color = new Color(0.86f, 0.88f, 0.94f);
         body.horizontalOverflow = HorizontalWrapMode.Wrap;
         body.verticalOverflow = VerticalWrapMode.Truncate;
-        body.lineSpacing = 1.05f;
+        body.lineSpacing = 1.0f;
+        body.resizeTextForBestFit = false;
 
-        footer = MakeText(screenArea, "Footer", 16, TextAnchor.LowerLeft);
+        footer = MakeText(screenArea, "Footer", FooterFontSize, TextAnchor.LowerCenter);
         var footerRect = footer.rectTransform;
         footerRect.anchorMin = new Vector2(0f, 0f);
         footerRect.anchorMax = new Vector2(1f, 0f);
         footerRect.pivot = new Vector2(0.5f, 0f);
-        footerRect.sizeDelta = new Vector2(-20f, 28f);
-        footerRect.anchoredPosition = new Vector2(0f, 8f);
+        footerRect.sizeDelta = new Vector2(-16f, 24f);
+        footerRect.anchoredPosition = new Vector2(0f, 4f);
         footer.color = new Color(0.55f, 0.58f, 0.7f);
+        footer.horizontalOverflow = HorizontalWrapMode.Wrap;
+        footer.verticalOverflow = VerticalWrapMode.Truncate;
 
         panel.gameObject.SetActive(false);
     }
