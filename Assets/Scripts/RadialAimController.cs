@@ -10,6 +10,11 @@ public class RadialAimController : MonoBehaviour
     const float AngleTop = 90f;
     const float AngleLeft = 180f;
 
+    // Мягкий «резиновый» выход за край дуги (немноооого): медленный уход, пружина при отпускании.
+    const float SoftOvershootMax = 5f;
+    const float SoftIntoFactor = 0.22f;
+    const float SoftSpringDegreesPerSecond = 420f;
+
     float currentAngle = AngleTop;
     float targetAngle = AngleTop;
     float drag = 1f;
@@ -104,7 +109,12 @@ public class RadialAimController : MonoBehaviour
 
         if (!holding)
         {
-            targetAngle = currentAngle;
+            // Отпустили у края: пружина назад в [0..180], без дрейфа внутри дуги.
+            if (currentAngle < AngleRight)
+                currentAngle = Mathf.MoveTowards(currentAngle, AngleRight, SoftSpringDegreesPerSecond * Time.deltaTime);
+            else if (currentAngle > AngleLeft)
+                currentAngle = Mathf.MoveTowards(currentAngle, AngleLeft, SoftSpringDegreesPerSecond * Time.deltaTime);
+            targetAngle = Mathf.Clamp(currentAngle, AngleRight, AngleLeft);
             return;
         }
 
@@ -114,8 +124,40 @@ public class RadialAimController : MonoBehaviour
         if (holdD) targetAngle = AngleRight;
 
         float speed = Balance.Data.baseTurnDegreesPerSecond * drag * (ChoiceIsOpen() ? Balance.Data.turnAfterPhone : 1f);
+
+        // У края прицела: продолжаем чуть-чуть за clamp с растущим сопротивлением (stretch).
+        if (targetAngle <= AngleRight && currentAngle <= AngleRight)
+        {
+            ApplySoftOvershoot(toward: AngleRight - SoftOvershootMax, edge: AngleRight, speed);
+            return;
+        }
+
+        if (targetAngle >= AngleLeft && currentAngle >= AngleLeft)
+        {
+            ApplySoftOvershoot(toward: AngleLeft + SoftOvershootMax, edge: AngleLeft, speed);
+            return;
+        }
+
         // Углы 0..180: MoveTowards всегда идёт через верх, низа нет.
+        // Если были в overshoot — обычный ход к цели сам вытягивает курсор обратно на дугу.
         currentAngle = Mathf.MoveTowards(currentAngle, targetAngle, speed * Time.deltaTime);
+    }
+
+    /// <summary>
+    /// Медленный уход за край дуги: скорость падает квадратично к SoftOvershootMax.
+    /// </summary>
+    void ApplySoftOvershoot(float toward, float edge, float baseSpeed)
+    {
+        float overshoot = Mathf.Abs(currentAngle - edge);
+        float remaining = 1f - Mathf.Clamp01(overshoot / SoftOvershootMax);
+        float softSpeed = baseSpeed * SoftIntoFactor * remaining * remaining;
+        if (softSpeed <= 0.01f)
+        {
+            currentAngle = toward;
+            return;
+        }
+
+        currentAngle = Mathf.MoveTowards(currentAngle, toward, softSpeed * Time.deltaTime);
     }
 
     /// <summary>
