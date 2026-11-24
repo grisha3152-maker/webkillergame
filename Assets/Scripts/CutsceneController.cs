@@ -1,8 +1,10 @@
 using System.Collections;
+using System.IO;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using UnityEngine.Video;
 
 public class CutsceneController : MonoBehaviour
 {
@@ -17,6 +19,11 @@ public class CutsceneController : MonoBehaviour
     RectTransform titleBottomHalf;
     Text titleLabel;
     Text pressSpaceLabel;
+    // Полноэкранное интро после wipe, до EnableCombat
+    GameObject introVideoRoot;
+    RawImage introVideoImage;
+    VideoPlayer introVideoPlayer;
+    RenderTexture introVideoRt;
     // Narrative ending (Lev «are you even alive?»): cascade / black / space BR
     GameObject aliveRoot;
     Text aliveCascade;
@@ -26,11 +33,11 @@ public class CutsceneController : MonoBehaviour
     Image aliveBlack;
     AudioSource titleAudio;
     bool ending;
-    // true после wipe / пропуска по U
+    // true после wipe+видео / пропуска по U
     bool openingDone;
-    // true, пока титул/wipe ещё на экране
+    // true, пока титул/wipe/интро-видео ещё на экране
     bool cutscenePlaying;
-    /// <summary>Флаг «cutscene playing» — титул или wipe, бой ещё не включён.</summary>
+    /// <summary>Флаг «cutscene playing» — титул, wipe или intro video; бой ещё не включён.</summary>
     public bool IsCutscenePlaying => cutscenePlaying;
     int kills;
 
@@ -38,6 +45,9 @@ public class CutsceneController : MonoBehaviour
     const float PressSpaceDelay = 2f;
     // Длительность горизонтального разъезда половинок
     const float WipeSeconds = 0.9f;
+    // Относительный путь ролика от Assets/
+    const string IntroVideoRelativePath = "Arts/Room/first_scene.mp4";
+    const float IntroVideoPrepareTimeout = 8f;
 
     void Start()
     {
@@ -84,6 +94,7 @@ public class CutsceneController : MonoBehaviour
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
+        StopIntroVideo();
         HideTitleSplash();
         StartCoroutine(Ending(quiet));
     }
@@ -96,24 +107,39 @@ public class CutsceneController : MonoBehaviour
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
+        StopIntroVideo();
         HideTitleSplash();
         StartCoroutine(AliveEnding());
     }
 
-    // Скрыть титул и продолжить игру как после полного интро
+    void OnDestroy()
+    {
+        if (introVideoPlayer != null)
+            introVideoPlayer.Stop();
+        if (introVideoRt != null)
+        {
+            introVideoRt.Release();
+            Destroy(introVideoRt);
+            introVideoRt = null;
+        }
+    }
+
+    // Скрыть титул/видео и продолжить игру как после полного интро
     void SkipOpening()
     {
         if (openingDone || ending) return;
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
+        StopIntroVideo();
         FinishOpening();
     }
 
-    // Общий хвост после титула: часы, бой, подсказка, сплэш скрыт
+    // Общий хвост после титула+видео: часы, бой, подсказка, overlays скрыты
     void FinishOpening()
     {
         HideTitleSplash();
+        HideIntroVideo();
 
         if (GameManager.Instance != null)
         {
@@ -133,11 +159,17 @@ public class CutsceneController : MonoBehaviour
 
     void HideTitleSplash()
     {
-        cutscenePlaying = false;
         if (titleRoot != null) titleRoot.SetActive(false);
     }
 
-    // Титул: чёрный экран → «ghost clicker» → через 2с PRESS SPACE (+клик) → Space → wipe → бой.
+    void HideIntroVideo()
+    {
+        cutscenePlaying = false;
+        if (introVideoRoot != null) introVideoRoot.SetActive(false);
+        if (introVideoImage != null) introVideoImage.texture = null;
+    }
+
+    // Титул: чёрный экран → «ghost clicker» → через 2с PRESS SPACE → Space → wipe → intro video → бой.
     // Старые плашки/дисклеймер здесь не показываются — игрок не застревает за ними.
     IEnumerator Opening()
     {
@@ -145,6 +177,7 @@ public class CutsceneController : MonoBehaviour
         if (captionRoot != null) captionRoot.SetActive(false);
         if (caption != null) caption.text = string.Empty;
         if (titleRoot != null) titleRoot.SetActive(true);
+        if (introVideoRoot != null) introVideoRoot.SetActive(false);
         if (pressSpaceLabel != null) pressSpaceLabel.gameObject.SetActive(false);
 
         // Ждём появления подсказки
@@ -170,12 +203,93 @@ public class CutsceneController : MonoBehaviour
             {
                 yield return WipeReveal();
                 if (openingDone) yield break;
+                // После wipe — ролик, потом бой. Combat/спавнеры пока выключены.
+                yield return PlayIntroVideo();
+                if (openingDone) yield break;
                 openingDone = true;
                 FinishOpening();
                 yield break;
             }
             yield return null;
         }
+    }
+
+    // Полноэкранный VideoPlayer поверх сцены; бой стартует только после loopPointReached.
+    IEnumerator PlayIntroVideo()
+    {
+        cutscenePlaying = true;
+        HideTitleSplash();
+
+        string path = Path.Combine(Application.dataPath, IntroVideoRelativePath);
+        if (!File.Exists(path))
+        {
+            Debug.LogWarning("CutsceneController: intro video missing at " + path + " — skipping to gameplay.");
+            yield break;
+        }
+
+        EnsureIntroVideoUi();
+        if (introVideoRoot == null || introVideoPlayer == null)
+            yield break;
+
+        introVideoRoot.SetActive(true);
+        introVideoPlayer.source = VideoSource.Url;
+        introVideoPlayer.url = path;
+        introVideoPlayer.isLooping = false;
+        introVideoPlayer.playOnAwake = false;
+        introVideoPlayer.skipOnDrop = true;
+        introVideoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+
+        introVideoPlayer.Prepare();
+        float wait = 0f;
+        while (!introVideoPlayer.isPrepared && wait < IntroVideoPrepareTimeout)
+        {
+            if (openingDone) yield break;
+            wait += Time.deltaTime;
+            yield return null;
+        }
+
+        if (!introVideoPlayer.isPrepared)
+        {
+            Debug.LogWarning("CutsceneController: intro video prepare timed out — skipping to gameplay.");
+            StopIntroVideo();
+            yield break;
+        }
+
+        if (introVideoPlayer.audioTrackCount > 0)
+        {
+            introVideoPlayer.EnableAudioTrack(0, true);
+            introVideoPlayer.SetDirectAudioMute(0, false);
+            introVideoPlayer.SetDirectAudioVolume(0, 1f);
+        }
+
+        if (introVideoImage != null && introVideoRt != null)
+            introVideoImage.texture = introVideoRt;
+
+        bool ended = false;
+        void OnLoopPoint(VideoPlayer _) => ended = true;
+        introVideoPlayer.loopPointReached += OnLoopPoint;
+        introVideoPlayer.Play();
+
+        while (!ended && !openingDone)
+            yield return null;
+
+        introVideoPlayer.loopPointReached -= OnLoopPoint;
+        StopIntroVideo();
+    }
+
+    void StopIntroVideo()
+    {
+        if (introVideoPlayer != null && introVideoPlayer.isPlaying)
+            introVideoPlayer.Stop();
+        HideIntroVideo();
+    }
+
+    void EnsureIntroVideoUi()
+    {
+        if (introVideoRoot != null) return;
+        var canvas = GameObject.Find("CutsceneCanvas");
+        if (canvas == null) return;
+        BuildIntroVideoUi(canvas.transform);
     }
 
     // Верхняя половина уезжает вверх, нижняя — вниз, под ними уже SampleScene / бой.
@@ -460,6 +574,7 @@ public class CutsceneController : MonoBehaviour
         titleAudio.spatialBlend = 0f;
 
         BuildTitleSplash(canvasGo.transform);
+        BuildIntroVideoUi(canvasGo.transform);
         BuildAliveEndingUi(canvasGo.transform);
 
         // Сразу выключен: не должен мелькать на старте до Opening()
@@ -558,6 +673,55 @@ public class CutsceneController : MonoBehaviour
         pressGo.SetActive(false);
 
         titleRoot.SetActive(false);
+    }
+
+    // Полноэкранный слой под VideoPlayer (RenderTexture → RawImage), выше титула.
+    void BuildIntroVideoUi(Transform canvas)
+    {
+        introVideoRoot = new GameObject("IntroVideo");
+        introVideoRoot.transform.SetParent(canvas, false);
+        var rootRect = introVideoRoot.AddComponent<RectTransform>();
+        rootRect.anchorMin = Vector2.zero;
+        rootRect.anchorMax = Vector2.one;
+        rootRect.offsetMin = Vector2.zero;
+        rootRect.offsetMax = Vector2.zero;
+
+        var blackGo = new GameObject("Black");
+        blackGo.transform.SetParent(introVideoRoot.transform, false);
+        var blackRect = blackGo.AddComponent<RectTransform>();
+        blackRect.anchorMin = Vector2.zero;
+        blackRect.anchorMax = Vector2.one;
+        blackRect.offsetMin = Vector2.zero;
+        blackRect.offsetMax = Vector2.zero;
+        var black = blackGo.AddComponent<Image>();
+        black.color = Color.black;
+        black.raycastTarget = false;
+
+        var imageGo = new GameObject("VideoImage");
+        imageGo.transform.SetParent(introVideoRoot.transform, false);
+        var imageRect = imageGo.AddComponent<RectTransform>();
+        imageRect.anchorMin = Vector2.zero;
+        imageRect.anchorMax = Vector2.one;
+        imageRect.offsetMin = Vector2.zero;
+        imageRect.offsetMax = Vector2.zero;
+        introVideoImage = imageGo.AddComponent<RawImage>();
+        introVideoImage.color = Color.white;
+        introVideoImage.raycastTarget = false;
+
+        introVideoRt = new RenderTexture(1920, 1080, 0, RenderTextureFormat.ARGB32);
+        introVideoRt.name = "IntroVideoRT";
+        introVideoRt.Create();
+        introVideoImage.texture = introVideoRt;
+
+        introVideoPlayer = introVideoRoot.AddComponent<VideoPlayer>();
+        introVideoPlayer.playOnAwake = false;
+        introVideoPlayer.isLooping = false;
+        introVideoPlayer.renderMode = VideoRenderMode.RenderTexture;
+        introVideoPlayer.targetTexture = introVideoRt;
+        introVideoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+        introVideoPlayer.source = VideoSource.Url;
+
+        introVideoRoot.SetActive(false);
     }
 
     // UI для Lev alive-ending: каскад по центру, линии, чёрный фон, space справа снизу.
