@@ -21,6 +21,11 @@ public class Dialogue : MonoBehaviour
     const float HeroMutterDelaySeconds = 1f;
     /// <summary>Финальный пинг Лева — триггер narrative ending (EN в JSON, RU на экране катсцены).</summary>
     const string AlivePingId = "lev_alive";
+    /// <summary>Флаг set[] при доставке lev_alive — переживает mark-read / пустой openInbox.</summary>
+    const string AlivePingFlag = "lev_alive_sent";
+    /// <summary>Текст пинга в dialogue.json (EN). RU — если когда-то подставят в данные.</summary>
+    const string AlivePingTextEn = "are you even alive?";
+    const string AlivePingTextRu = "ты там вообще живой?";
     /// <summary>Секунд с открытым телефоном на lev_alive до старта каскада.</summary>
     const float AliveEndingHoldSeconds = 5f;
     const string PhoneSpritePath = "Sprites/Phone/phone";
@@ -270,7 +275,8 @@ public class Dialogue : MonoBehaviour
             string who = active != null ? active.id : "inbox";
             Debug.Log(
                 $"Dialogue: E → телефон открыт ({who}, unreadSession={openInbox.Count}, history={history.Count}, contacts={CountInboxBlocks()})");
-            // До clear unread: если в сессии есть lev_alive — через 5с стартуем ending.
+            // После phone-chat-persist контакты живут в history: mark-read чистит unread,
+            // поэтому триггер не должен зависеть только от openInbox (см. ShouldArmAliveEnding).
             TryStartAliveEndingHold();
             MutterForLatestUnreadThenMarkRead();
             scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
@@ -287,20 +293,53 @@ public class Dialogue : MonoBehaviour
         Refresh();
     }
 
-    /// <summary>Есть ли в текущем inbox снимок пинга lev_alive.</summary>
+    /// <summary>EN/RU текст финального пинга Лева (id или язык данных).</summary>
+    static bool IsAlivePingText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return false;
+        string t = text.Trim();
+        return string.Equals(t, AlivePingTextEn, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(t, AlivePingTextRu, StringComparison.Ordinal);
+    }
+
+    /// <summary>Есть ли в текущем inbox-снимке пинг lev_alive (id или текст EN/RU).</summary>
     bool OpenInboxHasAlivePing()
     {
         for (int i = 0; i < openInbox.Count; i++)
         {
-            if (openInbox[i].pingId == AlivePingId)
+            UnreadEntry e = openInbox[i];
+            if (e.pingId == AlivePingId || IsAlivePingText(e.text))
                 return true;
         }
         return false;
     }
 
+    /// <summary>Уже прочитанный lev_alive всё ещё виден в history (после mark-read).</summary>
+    bool HistoryHasAlivePing()
+    {
+        for (int i = 0; i < history.Count; i++)
+        {
+            HistoryLine line = history[i];
+            if (line.contact == "lev" && IsAlivePingText(line.text))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Открыли телефон, пока финальный пинг Лева «на экране»: unread-сессия,
+    /// флаг доставки, или строка в history после mark-read / reopen.
+    /// </summary>
+    bool ShouldArmAliveEnding()
+    {
+        if (OpenInboxHasAlivePing()) return true;
+        if (flags.Contains(AlivePingFlag)) return true;
+        return HistoryHasAlivePing();
+    }
+
     void TryStartAliveEndingHold()
     {
-        if (!OpenInboxHasAlivePing()) return;
+        if (!ShouldArmAliveEnding()) return;
         var gm = GameManager.Instance;
         if (gm == null || gm.IsEnded) return;
 
@@ -446,8 +485,10 @@ public class Dialogue : MonoBehaviour
     {
         if (ping == null) return;
 
-        AppendHistory(ping);
+        // Флаги до history: lev_alive_sent должен быть доступен сразу в TryStartAliveEndingHold
+        // (пинг пришёл при уже открытом телефоне).
         ApplyFlags(ping.set);
+        AppendHistory(ping);
 
         if (!firstPingLogged)
         {
@@ -587,7 +628,7 @@ public class Dialogue : MonoBehaviour
         {
             openInbox.Add(entry);
             scrollBlocks = Mathf.Max(0, CountInboxBlocks() - VisibleInboxBlocks);
-            if (ping.id == AlivePingId)
+            if (ping.id == AlivePingId || IsAlivePingText(ping.incoming))
                 TryStartAliveEndingHold();
         }
         else
