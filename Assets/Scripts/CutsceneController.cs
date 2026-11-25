@@ -18,10 +18,16 @@ public class CutsceneController : MonoBehaviour
     Text titleLabel;
     Text pressSpaceLabel;
     // Still-frame wake-desk intro после wipe, до EnableCombat (без VideoPlayer)
+    // Позы sleep/headdown — in-place на Player (тот же transform/scale, что боевой стол),
+    // а не fullscreen Image на чёрной пустоте.
     GameObject introRoot;
-    Image introImage;
     Text introLine;
     Text introSpacePrompt;
+    SpriteRenderer wakeHeroRenderer;
+    Sprite wakeHeroSavedSprite;
+    Animator wakeHeroAnimator;
+    bool wakeHeroSavedAnimatorEnabled;
+    bool wakePoseBound;
     // Narrative ending (Lev «are you even alive?»): cascade / black / space BR
     GameObject aliveRoot;
     Text aliveCascade;
@@ -51,6 +57,12 @@ public class CutsceneController : MonoBehaviour
     const string IntroHeaddownPath = "Sprites/Intro/headdown";
     const string IntroLineNoise = "that noise again..";
     const string IntroLineDistract = "guess I should distract myself";
+    // Герой в SampleScene: PPU=2, crop как у Writing/1 (см. .meta rect).
+    const float IntroHeroPixelsPerUnit = 2f;
+    const float IntroHeroCropX = 50f;
+    const float IntroHeroCropY = 6f;
+    const float IntroHeroCropW = 1192f;
+    const float IntroHeroCropH = 672f;
 
     void Start()
     {
@@ -88,6 +100,11 @@ public class CutsceneController : MonoBehaviour
         if (!ending) return;
         if (keyboard.rKey.wasPressedThisFrame)
             SceneManager.LoadScene(SceneManager.GetActiveScene().buildIndex);
+    }
+
+    void OnDestroy()
+    {
+        RestoreWakeHeroPose();
     }
 
     public void PlayEnding(bool quiet)
@@ -156,6 +173,7 @@ public class CutsceneController : MonoBehaviour
     void HideWakeDeskIntro()
     {
         cutscenePlaying = false;
+        RestoreWakeHeroPose();
         if (introRoot != null) introRoot.SetActive(false);
         if (introLine != null) introLine.text = string.Empty;
         if (introSpacePrompt != null)
@@ -197,9 +215,7 @@ public class CutsceneController : MonoBehaviour
             var keyboard = Keyboard.current;
             if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
             {
-                yield return WipeReveal();
-                if (openingDone) yield break;
-                // После wipe — still-frame wake desk, потом бой. Combat/спавнеры пока выключены.
+                // Позу sleep ставим до wipe — при разъезде половинок уже видна комната+стол.
                 yield return PlayWakeDeskIntro();
                 if (openingDone) yield break;
                 openingDone = true;
@@ -210,21 +226,20 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    // sleep → headdown + две реплики со Space; missing art → soft-fail в бой (без soft-lock).
+    // sleep → headdown на Player + две реплики со Space; missing art → soft-fail в бой (без soft-lock).
     IEnumerator PlayWakeDeskIntro()
     {
         cutscenePlaying = true;
-        HideTitleSplash();
 
         EnsureWakeDeskIntroUi();
-        if (introRoot == null || introImage == null)
+        if (introRoot == null)
         {
             Debug.LogError("CutsceneController: wake-desk intro UI missing — skipping to gameplay.");
             yield break;
         }
 
-        Sprite sleep = LoadIntroSprite(IntroSleepPath);
-        Sprite headdown = LoadIntroSprite(IntroHeaddownPath);
+        Sprite sleep = LoadIntroHeroPose(IntroSleepPath);
+        Sprite headdown = LoadIntroHeroPose(IntroHeaddownPath);
         if (sleep == null && headdown == null)
         {
             Debug.LogError(
@@ -233,6 +248,19 @@ public class CutsceneController : MonoBehaviour
             HideWakeDeskIntro();
             yield break;
         }
+
+        if (!BindWakeHeroPose())
+        {
+            Debug.LogError("CutsceneController: Player SpriteRenderer missing — skipping wake poses.");
+            HideWakeDeskIntro();
+            yield break;
+        }
+
+        // 1) sleep на герое, затем wipe — комната уже в кадре.
+        ApplyWakeHeroPose(sleep != null ? sleep : headdown);
+        yield return WipeReveal();
+        if (openingDone) yield break;
+        HideTitleSplash();
 
         introRoot.SetActive(true);
         if (introLine != null)
@@ -246,14 +274,12 @@ public class CutsceneController : MonoBehaviour
             introSpacePrompt.gameObject.SetActive(false);
         }
 
-        // 1) sleep full-bleed
-        SetIntroSprite(sleep != null ? sleep : headdown);
         yield return WaitOrOpeningDone(SleepHoldSeconds);
         if (openingDone) yield break;
 
-        // 2) headdown
+        // 2) headdown — тот же transform Player
         if (headdown != null)
-            SetIntroSprite(headdown);
+            ApplyWakeHeroPose(headdown);
 
         // 3) line under character
         if (introLine != null)
@@ -283,26 +309,74 @@ public class CutsceneController : MonoBehaviour
         HideWakeDeskIntro();
     }
 
-    static Sprite LoadIntroSprite(string resourcesPath)
+    /// <summary>
+    /// Поза для мира SampleScene: тот же crop/PPU, что у Writing-героя (не UI PPU=100).
+    /// Импортированный Sprite.rect игнорируем — иначе desk «плавает» мелким на чёрном.
+    /// </summary>
+    static Sprite LoadIntroHeroPose(string resourcesPath)
     {
-        Sprite sprite = Resources.Load<Sprite>(resourcesPath);
-        if (sprite != null) return sprite;
-        Texture2D tex = Resources.Load<Texture2D>(resourcesPath);
+        Texture2D tex = null;
+        Sprite imported = Resources.Load<Sprite>(resourcesPath);
+        if (imported != null) tex = imported.texture;
+        if (tex == null) tex = Resources.Load<Texture2D>(resourcesPath);
         if (tex == null) return null;
+
+        float w = Mathf.Min(IntroHeroCropW, tex.width - IntroHeroCropX);
+        float h = Mathf.Min(IntroHeroCropH, tex.height - IntroHeroCropY);
+        if (w < 8f || h < 8f)
+        {
+            w = tex.width;
+            h = tex.height;
+            return Sprite.Create(
+                tex,
+                new Rect(0f, 0f, w, h),
+                new Vector2(0.5f, 0.5f),
+                IntroHeroPixelsPerUnit);
+        }
+
         return Sprite.Create(
             tex,
-            new Rect(0f, 0f, tex.width, tex.height),
+            new Rect(IntroHeroCropX, IntroHeroCropY, w, h),
             new Vector2(0.5f, 0.5f),
-            100f);
+            IntroHeroPixelsPerUnit);
     }
 
-    void SetIntroSprite(Sprite sprite)
+    bool BindWakeHeroPose()
     {
-        if (introImage == null || sprite == null) return;
-        introImage.sprite = sprite;
-        // Full-bleed stretch; art already has black bars/bg.
-        introImage.preserveAspect = false;
-        introImage.color = Color.white;
+        if (wakePoseBound && wakeHeroRenderer != null) return true;
+
+        var player = GameObject.FindGameObjectWithTag("Player");
+        if (player == null) return false;
+        wakeHeroRenderer = player.GetComponent<SpriteRenderer>();
+        if (wakeHeroRenderer == null) return false;
+
+        wakeHeroSavedSprite = wakeHeroRenderer.sprite;
+        wakeHeroAnimator = player.GetComponent<Animator>();
+        wakeHeroSavedAnimatorEnabled = wakeHeroAnimator != null && wakeHeroAnimator.enabled;
+        if (wakeHeroAnimator != null)
+            wakeHeroAnimator.enabled = false;
+
+        wakePoseBound = true;
+        return true;
+    }
+
+    void ApplyWakeHeroPose(Sprite pose)
+    {
+        if (wakeHeroRenderer == null || pose == null) return;
+        wakeHeroRenderer.sprite = pose;
+    }
+
+    void RestoreWakeHeroPose()
+    {
+        if (!wakePoseBound) return;
+        if (wakeHeroRenderer != null && wakeHeroSavedSprite != null)
+            wakeHeroRenderer.sprite = wakeHeroSavedSprite;
+        if (wakeHeroAnimator != null)
+            wakeHeroAnimator.enabled = wakeHeroSavedAnimatorEnabled;
+        wakePoseBound = false;
+        wakeHeroRenderer = null;
+        wakeHeroSavedSprite = null;
+        wakeHeroAnimator = null;
     }
 
     IEnumerator WaitOrOpeningDone(float seconds)
@@ -726,7 +800,7 @@ public class CutsceneController : MonoBehaviour
         titleRoot.SetActive(false);
     }
 
-    // Full-bleed still frames + m5x7 lines under the character; выше титула по sibling order.
+    // Только текст/space поверх комнаты SampleScene — без чёрной пустоты и fullscreen frame.
     void BuildWakeDeskIntroUi(Transform canvas)
     {
         introRoot = new GameObject("WakeDeskIntro");
@@ -737,33 +811,10 @@ public class CutsceneController : MonoBehaviour
         rootRect.offsetMin = Vector2.zero;
         rootRect.offsetMax = Vector2.zero;
 
-        var blackGo = new GameObject("Black");
-        blackGo.transform.SetParent(introRoot.transform, false);
-        var blackRect = blackGo.AddComponent<RectTransform>();
-        blackRect.anchorMin = Vector2.zero;
-        blackRect.anchorMax = Vector2.one;
-        blackRect.offsetMin = Vector2.zero;
-        blackRect.offsetMax = Vector2.zero;
-        var black = blackGo.AddComponent<Image>();
-        black.color = Color.black;
-        black.raycastTarget = false;
-
-        var imageGo = new GameObject("Frame");
-        imageGo.transform.SetParent(introRoot.transform, false);
-        var imageRect = imageGo.AddComponent<RectTransform>();
-        imageRect.anchorMin = Vector2.zero;
-        imageRect.anchorMax = Vector2.one;
-        imageRect.offsetMin = Vector2.zero;
-        imageRect.offsetMax = Vector2.zero;
-        introImage = imageGo.AddComponent<Image>();
-        introImage.color = Color.white;
-        introImage.preserveAspect = false;
-        introImage.raycastTarget = false;
-
         var lineGo = new GameObject("Line");
         lineGo.transform.SetParent(introRoot.transform, false);
         var lineRect = lineGo.AddComponent<RectTransform>();
-        // Under character: lower-middle band of the frame.
+        // Under character: lower band of the combat room framing.
         lineRect.anchorMin = new Vector2(0.5f, 0.12f);
         lineRect.anchorMax = new Vector2(0.5f, 0.12f);
         lineRect.pivot = new Vector2(0.5f, 0.5f);
