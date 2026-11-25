@@ -8,9 +8,9 @@ using UnityEngine.UI;
 public static class PixelFonts
 {
     const string ResourcePath = "Fonts/m5x7";
-    /// <summary>Кириллица + EN финал ending-каскада (глифы вшиты в m5x7.ttf).</summary>
+    /// <summary>Кириллица + EN mid/final ending lines (глифы вшиты в m5x7.ttf).</summary>
     const string CyrillicWarmup =
-        "тытамвообщеживойхорошийвопросбыллиявнасамомделеиwas it worth?. " +
+        "тытамвообщеживойхорошийвопросwas I even alive.. really? and was it worth?. " +
         "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
 
     static Font cached;
