@@ -564,10 +564,10 @@ public class CutsceneController : MonoBehaviour
         yield return WaitForSpace();
 
         if (aliveSpacePlaque != null) aliveSpacePlaque.gameObject.SetActive(false);
-        if (aliveLine != null) aliveLine.text = "был ли я жив.. на самом деле?";
+        if (aliveLine != null) aliveLine.text = "was I even alive.. really?";
         yield return new WaitForSeconds(2.2f);
 
-        if (aliveLine != null) aliveLine.text = "и";
+        if (aliveLine != null) aliveLine.text = "and";
         yield return new WaitForSeconds(1.6f);
 
         // Чёрный экран → was / it / worth / it?
