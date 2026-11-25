@@ -1,8 +1,10 @@
 using System.Collections;
+using System.IO;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using UnityEngine.Video;
 
 public class CutsceneController : MonoBehaviour
 {
@@ -28,13 +30,19 @@ public class CutsceneController : MonoBehaviour
     Animator wakeHeroAnimator;
     bool wakeHeroSavedAnimatorEnabled;
     bool wakePoseBound;
-    // Narrative ending (Lev «are you even alive?»): cascade / black / space BR
+    // Narrative ending (Lev «are you even alive?»): cascade → mid words → darken → end.mp4
     GameObject aliveRoot;
     Text aliveCascade;
     Text aliveLine;
     Text aliveLineBelow;
     Text aliveSpacePlaque;
     Image aliveBlack;
+    RawImage aliveEndVideoImage;
+    VideoPlayer aliveEndVideo;
+    RenderTexture aliveEndRt;
+    Material aliveEndMaterial;
+    AudioSource aliveEndAudio;
+    bool aliveEndVideoPlaying;
     AudioSource titleAudio;
     bool ending;
     // true после wipe+интро / пропуска по U
@@ -63,6 +71,15 @@ public class CutsceneController : MonoBehaviour
     const float IntroHeroCropY = 6f;
     const float IntroHeroCropW = 1192f;
     const float IntroHeroCropH = 672f;
+    // Lev alive-ending: end.mp4 plate (same size as writing chromakey source).
+    const string EndVideoArtsPath = "Arts/Ending/end.mp4";
+    const string EndVideoStreamingName = "end.mp4";
+    const string ChromaKeyMaterialPath = "Materials/ChromaKeyBlack";
+    const int EndVideoWidth = 1280;
+    const int EndVideoHeight = 704;
+    const float AliveDarkenSeconds = 1.4f;
+    const float AliveMidWordSeconds = 1f;
+    const float AliveOverlayHoldSeconds = 3f;
 
     void Start()
     {
@@ -105,6 +122,7 @@ public class CutsceneController : MonoBehaviour
     void OnDestroy()
     {
         RestoreWakeHeroPose();
+        CleanupAliveEndVideo();
     }
 
     public void PlayEnding(bool quiet)
@@ -119,7 +137,7 @@ public class CutsceneController : MonoBehaviour
         StartCoroutine(Ending(quiet));
     }
 
-    /// <summary>Ending после открытия последнего пинга Лева — слово-каскад и Space-цепочка.</summary>
+    /// <summary>Ending после открытия последнего пинга Лева — каскад, mid words, end.mp4.</summary>
     public void PlayAliveEnding()
     {
         if (ending) return;
@@ -510,7 +528,7 @@ public class CutsceneController : MonoBehaviour
     }
 
     /// <summary>
-    /// Каскад слов → пауза → стоп typing / откинуться → «хороший вопрос.» → Space-цепочка.
+    /// Каскад → пауза → lean → «хороший вопрос.» → mid words 1s → darken → end.mp4 → overlay.
     /// 5с с открытым телефоном уже отсчитаны в Dialogue до вызова PlayAliveEnding.
     /// </summary>
     IEnumerator AliveEnding()
@@ -521,6 +539,7 @@ public class CutsceneController : MonoBehaviour
         if (aliveRoot != null) aliveRoot.SetActive(true);
         SetAliveBlack(false);
         HideAliveLines();
+        HideAliveEndVideo();
         if (aliveSpacePlaque != null) aliveSpacePlaque.gameObject.SetActive(false);
 
         // Слова по центру, по 2с каждое.
@@ -554,53 +573,48 @@ public class CutsceneController : MonoBehaviour
         }
         yield return new WaitForSeconds(3f);
 
-        // Плашка space справа снизу.
-        if (aliveSpacePlaque != null)
-        {
-            aliveSpacePlaque.text = "space";
-            aliveSpacePlaque.gameObject.SetActive(true);
-            PlayPressSpaceSound();
-        }
-        yield return WaitForSpace();
-
-        if (aliveSpacePlaque != null) aliveSpacePlaque.gameObject.SetActive(false);
-        if (aliveLine != null) aliveLine.text = "was I even alive.. really?";
-        yield return new WaitForSeconds(2.2f);
-
-        if (aliveLine != null) aliveLine.text = "and";
-        yield return new WaitForSeconds(1.6f);
-
-        // Чёрный экран → was / it / worth / it?
+        // Mid beat: words of "was I even alive.. really?" one-by-one (1s), then "and".
         HideAliveLines();
-        SetAliveBlack(true);
-        yield return new WaitForSeconds(0.4f);
+        string[] midWords = { "was", "I", "even", "alive..", "really?", "and" };
+        for (int i = 0; i < midWords.Length; i++)
+        {
+            if (aliveCascade != null)
+            {
+                aliveCascade.gameObject.SetActive(true);
+                aliveCascade.text = midWords[i];
+            }
+            yield return new WaitForSeconds(AliveMidWordSeconds);
+            if (aliveCascade != null)
+            {
+                aliveCascade.text = string.Empty;
+                aliveCascade.gameObject.SetActive(false);
+            }
+        }
+
+        // Room darkens → end.mp4 (chromakey black; soft-fail if missing) → overlay lines.
+        HideAliveLines();
+        yield return DarkenAliveRoom(AliveDarkenSeconds);
+        yield return BeginAliveEndVideoSoft();
 
         if (aliveLine != null)
         {
+            aliveLine.transform.SetAsLastSibling();
             aliveLine.gameObject.SetActive(true);
-            aliveLine.text = "was";
+            aliveLine.text = "maybe I should've just..";
+        }
+        yield return new WaitForSeconds(AliveOverlayHoldSeconds);
+
+        if (aliveLineBelow != null)
+        {
+            aliveLineBelow.transform.SetAsLastSibling();
+            aliveLineBelow.gameObject.SetActive(true);
+            aliveLineBelow.text = "talked?";
         }
         if (aliveSpacePlaque != null)
-        {
-            aliveSpacePlaque.text = "space";
-            aliveSpacePlaque.gameObject.SetActive(true);
-        }
-        yield return WaitForSpace();
+            aliveSpacePlaque.transform.SetAsLastSibling();
 
-        if (aliveLineBelow != null)
-        {
-            aliveLineBelow.gameObject.SetActive(true);
-            aliveLineBelow.text = "it";
-        }
-        yield return WaitForSpace();
+        yield return WaitAliveEndVideoFinished();
 
-        if (aliveLineBelow != null)
-            aliveLineBelow.text = "it\nworth";
-        yield return WaitForSpace();
-
-        // «it?» under «worth»; Space no longer needed.
-        if (aliveLineBelow != null)
-            aliveLineBelow.text = "it\nworth\nit?";
         if (aliveSpacePlaque != null)
         {
             aliveSpacePlaque.text = "Press R";
@@ -609,6 +623,255 @@ public class CutsceneController : MonoBehaviour
         // Держим кадр; R — рестарт (Update).
         while (true)
             yield return null;
+    }
+
+    IEnumerator DarkenAliveRoom(float seconds)
+    {
+        if (aliveBlack == null)
+        {
+            yield return new WaitForSeconds(seconds);
+            yield break;
+        }
+
+        aliveBlack.gameObject.SetActive(true);
+        Color c = aliveBlack.color;
+        c.a = 0f;
+        aliveBlack.color = c;
+        float t = 0f;
+        float dur = Mathf.Max(0.05f, seconds);
+        while (t < dur)
+        {
+            t += Time.deltaTime;
+            c.a = Mathf.Clamp01(t / dur);
+            aliveBlack.color = c;
+            yield return null;
+        }
+        c.a = 1f;
+        aliveBlack.color = c;
+    }
+
+    /// <summary>
+    /// Starts end.mp4 over the darkened plate with black chromakey.
+    /// Soft-fails (logs, continues) if the file is missing or prepare times out.
+    /// </summary>
+    IEnumerator BeginAliveEndVideoSoft()
+    {
+        aliveEndVideoPlaying = false;
+        if (!TryResolveEndVideoUrl(out string url))
+        {
+            Debug.LogWarning("CutsceneController: end.mp4 missing — continuing ending without video.");
+            yield break;
+        }
+
+        if (!EnsureAliveEndVideoUi())
+        {
+            Debug.LogWarning("CutsceneController: end.mp4 chromakey UI failed — continuing without video.");
+            CleanupAliveEndVideo();
+            yield break;
+        }
+
+        aliveEndVideo.url = url;
+        aliveEndVideo.Prepare();
+        float timeout = 8f;
+        while (aliveEndVideo != null && !aliveEndVideo.isPrepared && timeout > 0f)
+        {
+            timeout -= Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        if (aliveEndVideo == null || !aliveEndVideo.isPrepared)
+        {
+            Debug.LogWarning("CutsceneController: end.mp4 prepare timed out — continuing without video.");
+            CleanupAliveEndVideo();
+            yield break;
+        }
+
+        if (aliveEndVideoImage != null)
+            aliveEndVideoImage.gameObject.SetActive(true);
+        aliveEndVideoPlaying = true;
+        aliveEndVideo.Play();
+    }
+
+    IEnumerator WaitAliveEndVideoFinished()
+    {
+        if (aliveEndVideo == null || !aliveEndVideoPlaying)
+            yield break;
+
+        float wait = 0f;
+        float maxWait = (float)aliveEndVideo.length + 1.5f;
+        if (maxWait < 2f) maxWait = EndVideoFallbackSeconds;
+        while (aliveEndVideo != null && aliveEndVideoPlaying && wait < maxWait)
+        {
+            if (!aliveEndVideo.isPlaying)
+                break;
+            wait += Time.deltaTime;
+            yield return null;
+        }
+
+        if (aliveEndVideo != null && aliveEndVideo.isPlaying)
+            aliveEndVideo.Pause();
+    }
+
+    const float EndVideoFallbackSeconds = 8.5f;
+
+    bool EnsureAliveEndVideoUi()
+    {
+        if (aliveRoot == null) return false;
+
+        Material sourceMat = Resources.Load<Material>(ChromaKeyMaterialPath);
+        Shader shader = sourceMat != null ? sourceMat.shader : Shader.Find("GhostClicker/ChromaKeyBlack");
+        if (shader == null) return false;
+
+        if (aliveEndRt == null)
+        {
+            aliveEndRt = new RenderTexture(EndVideoWidth, EndVideoHeight, 0, RenderTextureFormat.ARGB32)
+            {
+                name = "AliveEndRT",
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp
+            };
+            aliveEndRt.Create();
+        }
+
+        if (aliveEndMaterial == null)
+        {
+            aliveEndMaterial = sourceMat != null ? new Material(sourceMat) : new Material(shader);
+            aliveEndMaterial.name = "ChromaKeyAliveEndRuntime";
+        }
+        aliveEndMaterial.mainTexture = aliveEndRt;
+        aliveEndMaterial.SetTexture("_MainTex", aliveEndRt);
+
+        if (aliveEndVideoImage == null)
+        {
+            var go = new GameObject("EndVideo");
+            go.transform.SetParent(aliveRoot.transform, false);
+            // Above black, below cascade/line text (siblings created earlier stay on top if we insert after black).
+            go.transform.SetSiblingIndex(aliveBlack != null ? aliveBlack.transform.GetSiblingIndex() + 1 : 0);
+            var rect = go.AddComponent<RectTransform>();
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+            aliveEndVideoImage = go.AddComponent<RawImage>();
+            aliveEndVideoImage.raycastTarget = false;
+            go.SetActive(false);
+        }
+        aliveEndVideoImage.texture = aliveEndRt;
+        aliveEndVideoImage.material = aliveEndMaterial;
+        aliveEndVideoImage.color = Color.white;
+
+        if (aliveEndAudio == null)
+        {
+            aliveEndAudio = aliveRoot.AddComponent<AudioSource>();
+            aliveEndAudio.playOnAwake = false;
+            aliveEndAudio.spatialBlend = 0f;
+            aliveEndAudio.loop = false;
+        }
+
+        if (aliveEndVideo == null)
+        {
+            aliveEndVideo = aliveRoot.AddComponent<VideoPlayer>();
+            aliveEndVideo.playOnAwake = false;
+            aliveEndVideo.isLooping = false;
+            aliveEndVideo.renderMode = VideoRenderMode.RenderTexture;
+            aliveEndVideo.targetTexture = aliveEndRt;
+            aliveEndVideo.source = VideoSource.Url;
+            aliveEndVideo.skipOnDrop = true;
+            aliveEndVideo.waitForFirstFrame = true;
+            aliveEndVideo.audioOutputMode = VideoAudioOutputMode.AudioSource;
+            aliveEndVideo.SetTargetAudioSource(0, aliveEndAudio);
+        }
+        else
+        {
+            aliveEndVideo.targetTexture = aliveEndRt;
+            aliveEndVideo.SetTargetAudioSource(0, aliveEndAudio);
+        }
+
+        return true;
+    }
+
+    void HideAliveEndVideo()
+    {
+        aliveEndVideoPlaying = false;
+        if (aliveEndVideo != null && aliveEndVideo.isPlaying)
+            aliveEndVideo.Pause();
+        if (aliveEndVideoImage != null)
+            aliveEndVideoImage.gameObject.SetActive(false);
+    }
+
+    void CleanupAliveEndVideo()
+    {
+        aliveEndVideoPlaying = false;
+        if (aliveEndVideo != null)
+        {
+            aliveEndVideo.Stop();
+            Destroy(aliveEndVideo);
+            aliveEndVideo = null;
+        }
+        if (aliveEndVideoImage != null)
+        {
+            Destroy(aliveEndVideoImage.gameObject);
+            aliveEndVideoImage = null;
+        }
+        if (aliveEndMaterial != null)
+        {
+            Destroy(aliveEndMaterial);
+            aliveEndMaterial = null;
+        }
+        if (aliveEndRt != null)
+        {
+            aliveEndRt.Release();
+            Destroy(aliveEndRt);
+            aliveEndRt = null;
+        }
+        if (aliveEndAudio != null)
+        {
+            Destroy(aliveEndAudio);
+            aliveEndAudio = null;
+        }
+    }
+
+    static bool TryResolveEndVideoUrl(out string url)
+    {
+        url = null;
+
+        string streaming = Path.Combine(Application.streamingAssetsPath, EndVideoStreamingName);
+        if (EndVideoFileExists(streaming))
+        {
+            url = ToEndVideoFileUrl(streaming);
+            return true;
+        }
+
+        string arts = Path.Combine(Application.dataPath, EndVideoArtsPath);
+        if (EndVideoFileExists(arts))
+        {
+            url = ToEndVideoFileUrl(arts);
+            return true;
+        }
+
+        return false;
+    }
+
+    static bool EndVideoFileExists(string path)
+    {
+        if (string.IsNullOrEmpty(path)) return false;
+        if (path.Contains("://") || path.Contains("jar:"))
+            return true;
+        try
+        {
+            return File.Exists(path);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    static string ToEndVideoFileUrl(string path)
+    {
+        if (path.Contains("://"))
+            return path;
+        return "file://" + path.Replace("\\", "/");
     }
 
     static void ClearMonsters()
@@ -665,8 +928,14 @@ public class CutsceneController : MonoBehaviour
 
     void SetAliveBlack(bool on)
     {
-        if (aliveBlack != null)
-            aliveBlack.gameObject.SetActive(on);
+        if (aliveBlack == null) return;
+        if (on)
+        {
+            Color c = aliveBlack.color;
+            c.a = 1f;
+            aliveBlack.color = c;
+        }
+        aliveBlack.gameObject.SetActive(on);
     }
 
     void HideAliveLines()
