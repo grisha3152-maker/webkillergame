@@ -9,10 +9,10 @@ public class Monster : MonoBehaviour
 
     /// <summary>
     /// Высота неактивной буквы относительно высоты тела призрака (world bounds).
-    /// Circle scale ≈58.4 при Pig PPU 100 → тело ~558 wu; 0.24 ≈ читаемая «шапка», не на весь экран.
-    /// (Раньше localScale 0.18 при PPU 100 без учёта parent scale / halfH в local → буквы пропадали.)
+    /// Pig ≈5.94×58.4 ≈347 wu → 0.22 ≈ компактная «шапка» (~76 wu), читаемая в ortho 571.
+    /// Ряд живёт в world-space (не child Circle×58.4) — иначе localScale/материал ломают видимость.
     /// </summary>
-    const float ComboLetterHeightFracOfBody = 0.24f;
+    const float ComboLetterHeightFracOfBody = 0.22f;
     /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
     const float ComboActiveScaleMul = 1.28f;
     /// <summary>
@@ -24,7 +24,10 @@ public class Monster : MonoBehaviour
     const float ComboLetterEdgeGapFracOfHeight = 0.08f;
     /// <summary>Зазор макушка/низ ↔ край букв как доля высоты тела.</summary>
     const float ComboHeadClearanceFracOfBody = 0.04f;
+    /// <summary>Выше призрака (5) и руки (12), ниже UI-canvas.</summary>
     const int ComboSortingOrder = 40;
+
+    static Material s_comboUnlitMaterial;
 
     private Transform playerTransform;
     private SpriteRenderer spriteRenderer;
@@ -34,7 +37,7 @@ public class Monster : MonoBehaviour
     /// <summary>Заморожен захватом HitCombo (Space): не летит к герою, пока комбо активно.</summary>
     private bool movementFrozen;
 
-    /// <summary>Корень ряда спрайтов Z/X/C у призрака (над или под — по месту у края камеры).</summary>
+    /// <summary>World-space корень ряда Z/X/C (не child Circle — scale ≈58.4 ломал размер/отрисовку).</summary>
     private Transform comboRoot;
     private SpriteRenderer[] comboLetterRenderers;
     private char[] comboKeys;
@@ -234,8 +237,11 @@ public class Monster : MonoBehaviour
     {
         if (comboRoot != null) return;
 
+        // World root (scale 1): parenting under Circle×58.4 made letters either giant or invisible
+        // depending on counter-scale / lit-material interactions.
         var go = new GameObject("HitComboLetters");
-        go.transform.SetParent(transform, false);
+        go.transform.SetParent(null, false);
+        go.transform.localScale = Vector3.one;
         comboRoot = go.transform;
         comboLetterRenderers = null;
     }
@@ -262,15 +268,14 @@ public class Monster : MonoBehaviour
         }
 
         EnsureLetterRendererCount(comboKeys.Length);
-        // Компенсируем scale призрака (≈58.4): localScale букв далее = world scale.
-        SyncComboRootCounterScale();
+        comboRoot.localScale = Vector3.one;
 
         float bodyH = spriteRenderer != null
             ? Mathf.Max(1f, spriteRenderer.bounds.size.y)
             : 200f;
         float targetInactiveH = bodyH * ComboLetterHeightFracOfBody;
 
-        // Базовый localScale так, чтобы высота спрайта (PPU 100) ≈ targetInactiveH в world.
+        // World localScale (root scale=1): высота спрайта (PPU 100) ≈ targetInactiveH.
         float baseScale = 0f;
         for (int i = 0; i < comboKeys.Length; i++)
         {
@@ -303,7 +308,8 @@ public class Monster : MonoBehaviour
         float totalWidth = (comboKeys.Length - 1) * spacing;
         float startX = -totalWidth * 0.5f;
 
-        Material sharedMat = spriteRenderer != null ? spriteRenderer.sharedMaterial : null;
+        Material unlit = ComboUnlitMaterial();
+        int sortingLayerId = spriteRenderer != null ? spriteRenderer.sortingLayerID : 0;
 
         for (int i = 0; i < comboKeys.Length; i++)
         {
@@ -327,9 +333,10 @@ public class Monster : MonoBehaviour
 
             sr.enabled = true;
             sr.sprite = sprite;
-            // Тот же lit-материал, что у призрака — иначе URP 2D может рисовать буквы чёрными.
-            if (sharedMat != null)
-                sr.sharedMaterial = sharedMat;
+            // Unlit: lit material from Circle often drew runtime Sprite.Create letters black.
+            if (unlit != null)
+                sr.sharedMaterial = unlit;
+            sr.sortingLayerID = sortingLayerId;
             // Одинаковый sorting у всех: раньше active +1 рисовал поверх и маскировал соседей при overlap.
             sr.sortingOrder = ComboSortingOrder;
 
@@ -339,7 +346,7 @@ public class Monster : MonoBehaviour
                 sr.color = Color.white;
             else if (grayFallback)
                 // Без gray-текстуры: светло-серый тинт, чтобы буквы читались на тёмной комнате.
-                sr.color = new Color(0.78f, 0.78f, 0.82f, 1f);
+                sr.color = new Color(0.82f, 0.82f, 0.86f, 1f);
             else
                 sr.color = Color.white;
 
@@ -349,17 +356,19 @@ public class Monster : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Инвертируем lossyScale родителя, чтобы localScale/позиции букв совпадали с world units.
-    /// </summary>
-    void SyncComboRootCounterScale()
+    /// <summary>URP 2D Sprite-Unlit (или Sprites/Default) — цвет букв без зависимости от Global Light.</summary>
+    static Material ComboUnlitMaterial()
     {
-        if (comboRoot == null) return;
-        Vector3 ls = transform.lossyScale;
-        comboRoot.localScale = new Vector3(
-            1f / Mathf.Max(1e-4f, ls.x),
-            1f / Mathf.Max(1e-4f, ls.y),
-            1f);
+        if (s_comboUnlitMaterial != null) return s_comboUnlitMaterial;
+
+        Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+        if (shader == null)
+            shader = Shader.Find("Sprites/Default");
+        if (shader == null)
+            return null;
+
+        s_comboUnlitMaterial = new Material(shader) { name = "ComboLetterUnlit" };
+        return s_comboUnlitMaterial;
     }
 
     void EnsureLetterRendererCount(int count)
@@ -378,11 +387,16 @@ public class Monster : MonoBehaviour
         }
 
         comboLetterRenderers = new SpriteRenderer[count];
+        Material unlit = ComboUnlitMaterial();
+        int sortingLayerId = spriteRenderer != null ? spriteRenderer.sortingLayerID : 0;
         for (int i = 0; i < count; i++)
         {
             var letterGo = new GameObject("ComboLetter_" + i);
             letterGo.transform.SetParent(comboRoot, false);
             var sr = letterGo.AddComponent<SpriteRenderer>();
+            if (unlit != null)
+                sr.sharedMaterial = unlit;
+            sr.sortingLayerID = sortingLayerId;
             sr.sortingOrder = ComboSortingOrder;
             comboLetterRenderers[i] = sr;
         }
@@ -392,7 +406,7 @@ public class Monster : MonoBehaviour
     {
         if (comboRoot == null) return;
 
-        SyncComboRootCounterScale();
+        comboRoot.localScale = Vector3.one;
 
         // Центр по X bounds призрака — ряд у тела, не сбоку у героя.
         float headX = spriteRenderer != null
@@ -409,7 +423,7 @@ public class Monster : MonoBehaviour
             : 200f;
         float clearance = bodyH * ComboHeadClearanceFracOfBody;
 
-        // halfH в world: после SyncComboRootCounterScale localScale букв ≈ world scale.
+        // halfH в world: root scale=1 → bounds = sprite × localScale.
         float halfH = 0f;
         if (comboLetterRenderers != null)
         {
@@ -417,7 +431,6 @@ public class Monster : MonoBehaviour
             {
                 SpriteRenderer sr = comboLetterRenderers[i];
                 if (sr == null || !sr.enabled || sr.sprite == null) continue;
-                // bounds после sync — world AABB; надёжнее, чем localScale × sprite без parent.
                 float h = sr.bounds.extents.y;
                 if (h > halfH) halfH = h;
             }
