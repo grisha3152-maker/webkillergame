@@ -1,10 +1,8 @@
 using System.Collections;
-using System.IO;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using UnityEngine.Video;
 
 public class CutsceneController : MonoBehaviour
 {
@@ -19,11 +17,11 @@ public class CutsceneController : MonoBehaviour
     RectTransform titleBottomHalf;
     Text titleLabel;
     Text pressSpaceLabel;
-    // Полноэкранное интро после wipe, до EnableCombat
-    GameObject introVideoRoot;
-    RawImage introVideoImage;
-    VideoPlayer introVideoPlayer;
-    RenderTexture introVideoRt;
+    // Still-frame wake-desk intro после wipe, до EnableCombat (без VideoPlayer)
+    GameObject introRoot;
+    Image introImage;
+    Text introLine;
+    Text introSpacePrompt;
     // Narrative ending (Lev «are you even alive?»): cascade / black / space BR
     GameObject aliveRoot;
     Text aliveCascade;
@@ -33,11 +31,11 @@ public class CutsceneController : MonoBehaviour
     Image aliveBlack;
     AudioSource titleAudio;
     bool ending;
-    // true после wipe+видео / пропуска по U
+    // true после wipe+интро / пропуска по U
     bool openingDone;
-    // true, пока титул/wipe/интро-видео ещё на экране
+    // true, пока титул/wipe/интро ещё на экране
     bool cutscenePlaying;
-    /// <summary>Флаг «cutscene playing» — титул, wipe или intro video; бой ещё не включён.</summary>
+    /// <summary>Флаг «cutscene playing» — титул, wipe или wake-desk intro; бой ещё не включён.</summary>
     public bool IsCutscenePlaying => cutscenePlaying;
     int kills;
 
@@ -45,11 +43,14 @@ public class CutsceneController : MonoBehaviour
     const float PressSpaceDelay = 2f;
     // Длительность горизонтального разъезда половинок
     const float WipeSeconds = 0.9f;
-    // Linux Editor не играет H.264 URL/MP4 (LinuxVideoMedia format 0) — только VP8 WebM.
-    const string IntroVideoStreamingName = "first_scene.webm";
-    // Optional VideoClip fallback (same WebM under Resources/Videos/).
-    const string IntroVideoResourcesPath = "Videos/first_scene";
-    const float IntroVideoPrepareTimeout = 8f;
+    // sleep.png → headdown.png soft beat
+    const float SleepHoldSeconds = 2f;
+    // Пауза перед подсказкой «space» под репликой
+    const float IntroSpaceDelay = 3f;
+    const string IntroSleepPath = "Sprites/Intro/sleep";
+    const string IntroHeaddownPath = "Sprites/Intro/headdown";
+    const string IntroLineNoise = "that noise again..";
+    const string IntroLineDistract = "guess I should distract myself";
 
     void Start()
     {
@@ -96,7 +97,7 @@ public class CutsceneController : MonoBehaviour
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
-        StopIntroVideo();
+        HideWakeDeskIntro();
         HideTitleSplash();
         StartCoroutine(Ending(quiet));
     }
@@ -109,39 +110,27 @@ public class CutsceneController : MonoBehaviour
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
-        StopIntroVideo();
+        HideWakeDeskIntro();
         HideTitleSplash();
         StartCoroutine(AliveEnding());
     }
 
-    void OnDestroy()
-    {
-        if (introVideoPlayer != null)
-            introVideoPlayer.Stop();
-        if (introVideoRt != null)
-        {
-            introVideoRt.Release();
-            Destroy(introVideoRt);
-            introVideoRt = null;
-        }
-    }
-
-    // Скрыть титул/видео и продолжить игру как после полного интро
+    // Скрыть титул/интро и продолжить игру как после полного интро
     void SkipOpening()
     {
         if (openingDone || ending) return;
         openingDone = true;
         cutscenePlaying = false;
         StopAllCoroutines();
-        StopIntroVideo();
+        HideWakeDeskIntro();
         FinishOpening();
     }
 
-    // Общий хвост после титула+видео: часы, бой, подсказка, overlays скрыты
+    // Общий хвост после титула+интро: часы, бой, подсказка, overlays скрыты
     void FinishOpening()
     {
         HideTitleSplash();
-        HideIntroVideo();
+        HideWakeDeskIntro();
 
         if (GameManager.Instance != null)
         {
@@ -164,14 +153,19 @@ public class CutsceneController : MonoBehaviour
         if (titleRoot != null) titleRoot.SetActive(false);
     }
 
-    void HideIntroVideo()
+    void HideWakeDeskIntro()
     {
         cutscenePlaying = false;
-        if (introVideoRoot != null) introVideoRoot.SetActive(false);
-        if (introVideoImage != null) introVideoImage.texture = null;
+        if (introRoot != null) introRoot.SetActive(false);
+        if (introLine != null) introLine.text = string.Empty;
+        if (introSpacePrompt != null)
+        {
+            introSpacePrompt.text = string.Empty;
+            introSpacePrompt.gameObject.SetActive(false);
+        }
     }
 
-    // Титул: чёрный экран → «ghost clicker» → через 2с PRESS SPACE → Space → wipe → intro video → бой.
+    // Титул: чёрный экран → «ghost clicker» → через 2с PRESS SPACE → Space → wipe → wake-desk stills → бой.
     // Старые плашки/дисклеймер здесь не показываются — игрок не застревает за ними.
     IEnumerator Opening()
     {
@@ -179,7 +173,7 @@ public class CutsceneController : MonoBehaviour
         if (captionRoot != null) captionRoot.SetActive(false);
         if (caption != null) caption.text = string.Empty;
         if (titleRoot != null) titleRoot.SetActive(true);
-        if (introVideoRoot != null) introVideoRoot.SetActive(false);
+        if (introRoot != null) introRoot.SetActive(false);
         if (pressSpaceLabel != null) pressSpaceLabel.gameObject.SetActive(false);
 
         // Ждём появления подсказки
@@ -205,8 +199,8 @@ public class CutsceneController : MonoBehaviour
             {
                 yield return WipeReveal();
                 if (openingDone) yield break;
-                // После wipe — ролик, потом бой. Combat/спавнеры пока выключены.
-                yield return PlayIntroVideo();
+                // После wipe — still-frame wake desk, потом бой. Combat/спавнеры пока выключены.
+                yield return PlayWakeDeskIntro();
                 if (openingDone) yield break;
                 openingDone = true;
                 FinishOpening();
@@ -216,141 +210,137 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    // Полноэкранный VideoPlayer; бой после loopPointReached или soft-fail (без soft-lock).
-    IEnumerator PlayIntroVideo()
+    // sleep → headdown + две реплики со Space; missing art → soft-fail в бой (без soft-lock).
+    IEnumerator PlayWakeDeskIntro()
     {
         cutscenePlaying = true;
         HideTitleSplash();
 
-        EnsureIntroVideoUi();
-        if (introVideoRoot == null || introVideoPlayer == null)
+        EnsureWakeDeskIntroUi();
+        if (introRoot == null || introImage == null)
         {
-            Debug.LogError("CutsceneController: intro VideoPlayer UI missing — skipping to gameplay.");
+            Debug.LogError("CutsceneController: wake-desk intro UI missing — skipping to gameplay.");
             yield break;
         }
 
-        introVideoRoot.SetActive(true);
-        introVideoPlayer.isLooping = false;
-        introVideoPlayer.playOnAwake = false;
-        introVideoPlayer.skipOnDrop = true;
-        introVideoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
-        introVideoPlayer.clip = null;
-        introVideoPlayer.url = string.Empty;
-
-        if (!TryBindIntroVideoSource())
+        Sprite sleep = LoadIntroSprite(IntroSleepPath);
+        Sprite headdown = LoadIntroSprite(IntroHeaddownPath);
+        if (sleep == null && headdown == null)
         {
-            StopIntroVideo();
+            Debug.LogError(
+                "CutsceneController: wake-desk sprites missing ('" + IntroSleepPath +
+                "', '" + IntroHeaddownPath + "') — skipping to gameplay.");
+            HideWakeDeskIntro();
             yield break;
         }
 
-        bool prepareError = false;
-        string errorMsg = null;
-        void OnError(VideoPlayer _, string message)
+        introRoot.SetActive(true);
+        if (introLine != null)
         {
-            prepareError = true;
-            errorMsg = message;
+            introLine.text = string.Empty;
+            introLine.gameObject.SetActive(false);
+        }
+        if (introSpacePrompt != null)
+        {
+            introSpacePrompt.text = string.Empty;
+            introSpacePrompt.gameObject.SetActive(false);
         }
 
-        introVideoPlayer.errorReceived += OnError;
-        introVideoPlayer.Prepare();
-        float wait = 0f;
-        while (!introVideoPlayer.isPrepared && !prepareError && wait < IntroVideoPrepareTimeout)
+        // 1) sleep full-bleed
+        SetIntroSprite(sleep != null ? sleep : headdown);
+        yield return WaitOrOpeningDone(SleepHoldSeconds);
+        if (openingDone) yield break;
+
+        // 2) headdown
+        if (headdown != null)
+            SetIntroSprite(headdown);
+
+        // 3) line under character
+        if (introLine != null)
         {
-            if (openingDone)
-            {
-                introVideoPlayer.errorReceived -= OnError;
+            introLine.gameObject.SetActive(true);
+            introLine.text = IntroLineNoise;
+        }
+
+        // 4) 3s → "space" → wait Space
+        yield return WaitOrOpeningDone(IntroSpaceDelay);
+        if (openingDone) yield break;
+        yield return ShowIntroSpaceAndWait();
+        if (openingDone) yield break;
+
+        // 5) second line
+        if (introLine != null)
+            introLine.text = IntroLineDistract;
+        if (introSpacePrompt != null)
+            introSpacePrompt.gameObject.SetActive(false);
+
+        // 6) 3s → "space" → Space → combat
+        yield return WaitOrOpeningDone(IntroSpaceDelay);
+        if (openingDone) yield break;
+        yield return ShowIntroSpaceAndWait();
+        if (openingDone) yield break;
+
+        HideWakeDeskIntro();
+    }
+
+    static Sprite LoadIntroSprite(string resourcesPath)
+    {
+        Sprite sprite = Resources.Load<Sprite>(resourcesPath);
+        if (sprite != null) return sprite;
+        Texture2D tex = Resources.Load<Texture2D>(resourcesPath);
+        if (tex == null) return null;
+        return Sprite.Create(
+            tex,
+            new Rect(0f, 0f, tex.width, tex.height),
+            new Vector2(0.5f, 0.5f),
+            100f);
+    }
+
+    void SetIntroSprite(Sprite sprite)
+    {
+        if (introImage == null || sprite == null) return;
+        introImage.sprite = sprite;
+        // Full-bleed stretch; art already has black bars/bg.
+        introImage.preserveAspect = false;
+        introImage.color = Color.white;
+    }
+
+    IEnumerator WaitOrOpeningDone(float seconds)
+    {
+        float t = 0f;
+        while (t < seconds)
+        {
+            if (openingDone) yield break;
+            t += Time.deltaTime;
+            yield return null;
+        }
+    }
+
+    IEnumerator ShowIntroSpaceAndWait()
+    {
+        if (introSpacePrompt != null)
+        {
+            introSpacePrompt.text = "space";
+            introSpacePrompt.gameObject.SetActive(true);
+            PlayPressSpaceSound();
+        }
+        // Сброс кадра, чтобы удержание Space с титула не схлопнуло шаг.
+        yield return null;
+        while (!openingDone)
+        {
+            var keyboard = Keyboard.current;
+            if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
                 yield break;
-            }
-            wait += Time.deltaTime;
             yield return null;
         }
-
-        if (prepareError || !introVideoPlayer.isPrepared)
-        {
-            Debug.LogError(
-                "CutsceneController: intro video prepare failed" +
-                (string.IsNullOrEmpty(errorMsg) ? " (timeout/" + IntroVideoPrepareTimeout + "s)" : ": " + errorMsg) +
-                " — skipping to gameplay.");
-            introVideoPlayer.errorReceived -= OnError;
-            StopIntroVideo();
-            yield break;
-        }
-
-        if (introVideoPlayer.audioTrackCount > 0)
-        {
-            introVideoPlayer.EnableAudioTrack(0, true);
-            introVideoPlayer.SetDirectAudioMute(0, false);
-            introVideoPlayer.SetDirectAudioVolume(0, 1f);
-        }
-
-        if (introVideoImage != null && introVideoRt != null)
-            introVideoImage.texture = introVideoRt;
-
-        bool ended = false;
-        void OnLoopPoint(VideoPlayer _) => ended = true;
-        introVideoPlayer.loopPointReached += OnLoopPoint;
-        introVideoPlayer.Play();
-
-        while (!ended && !openingDone && !prepareError)
-            yield return null;
-
-        introVideoPlayer.loopPointReached -= OnLoopPoint;
-        introVideoPlayer.errorReceived -= OnError;
-
-        if (prepareError)
-        {
-            Debug.LogError(
-                "CutsceneController: intro video playback error" +
-                (string.IsNullOrEmpty(errorMsg) ? "" : ": " + errorMsg) +
-                " — skipping to gameplay.");
-        }
-
-        StopIntroVideo();
     }
 
-    // 1) StreamingAssets WebM URL (VP8+Vorbis)  2) Resources VideoClip WebM — никогда Assets/*.mp4 URL.
-    bool TryBindIntroVideoSource()
+    void EnsureWakeDeskIntroUi()
     {
-        string streamingPath = Path.Combine(Application.streamingAssetsPath, IntroVideoStreamingName);
-        if (File.Exists(streamingPath))
-        {
-            string url = streamingPath;
-            if (!url.Contains("://"))
-                url = "file://" + streamingPath;
-            introVideoPlayer.source = VideoSource.Url;
-            introVideoPlayer.url = url;
-            Debug.Log("CutsceneController: intro from StreamingAssets WebM '" + url + "'.");
-            return true;
-        }
-
-        var clip = Resources.Load<VideoClip>(IntroVideoResourcesPath);
-        if (clip != null)
-        {
-            introVideoPlayer.source = VideoSource.VideoClip;
-            introVideoPlayer.clip = clip;
-            Debug.Log("CutsceneController: intro from Resources VideoClip '" + IntroVideoResourcesPath + "'.");
-            return true;
-        }
-
-        Debug.LogError(
-            "CutsceneController: intro WebM missing — StreamingAssets '" + streamingPath +
-            "' and Resources '" + IntroVideoResourcesPath + "' — skipping to gameplay.");
-        return false;
-    }
-
-    void StopIntroVideo()
-    {
-        if (introVideoPlayer != null && introVideoPlayer.isPlaying)
-            introVideoPlayer.Stop();
-        HideIntroVideo();
-    }
-
-    void EnsureIntroVideoUi()
-    {
-        if (introVideoRoot != null) return;
+        if (introRoot != null) return;
         var canvas = GameObject.Find("CutsceneCanvas");
         if (canvas == null) return;
-        BuildIntroVideoUi(canvas.transform);
+        BuildWakeDeskIntroUi(canvas.transform);
     }
 
     // Верхняя половина уезжает вверх, нижняя — вниз, под ними уже SampleScene / бой.
@@ -635,7 +625,7 @@ public class CutsceneController : MonoBehaviour
         titleAudio.spatialBlend = 0f;
 
         BuildTitleSplash(canvasGo.transform);
-        BuildIntroVideoUi(canvasGo.transform);
+        BuildWakeDeskIntroUi(canvasGo.transform);
         BuildAliveEndingUi(canvasGo.transform);
 
         // Сразу выключен: не должен мелькать на старте до Opening()
@@ -736,19 +726,19 @@ public class CutsceneController : MonoBehaviour
         titleRoot.SetActive(false);
     }
 
-    // Полноэкранный слой под VideoPlayer (RenderTexture → RawImage), выше титула.
-    void BuildIntroVideoUi(Transform canvas)
+    // Full-bleed still frames + m5x7 lines under the character; выше титула по sibling order.
+    void BuildWakeDeskIntroUi(Transform canvas)
     {
-        introVideoRoot = new GameObject("IntroVideo");
-        introVideoRoot.transform.SetParent(canvas, false);
-        var rootRect = introVideoRoot.AddComponent<RectTransform>();
+        introRoot = new GameObject("WakeDeskIntro");
+        introRoot.transform.SetParent(canvas, false);
+        var rootRect = introRoot.AddComponent<RectTransform>();
         rootRect.anchorMin = Vector2.zero;
         rootRect.anchorMax = Vector2.one;
         rootRect.offsetMin = Vector2.zero;
         rootRect.offsetMax = Vector2.zero;
 
         var blackGo = new GameObject("Black");
-        blackGo.transform.SetParent(introVideoRoot.transform, false);
+        blackGo.transform.SetParent(introRoot.transform, false);
         var blackRect = blackGo.AddComponent<RectTransform>();
         blackRect.anchorMin = Vector2.zero;
         blackRect.anchorMax = Vector2.one;
@@ -758,31 +748,55 @@ public class CutsceneController : MonoBehaviour
         black.color = Color.black;
         black.raycastTarget = false;
 
-        var imageGo = new GameObject("VideoImage");
-        imageGo.transform.SetParent(introVideoRoot.transform, false);
+        var imageGo = new GameObject("Frame");
+        imageGo.transform.SetParent(introRoot.transform, false);
         var imageRect = imageGo.AddComponent<RectTransform>();
         imageRect.anchorMin = Vector2.zero;
         imageRect.anchorMax = Vector2.one;
         imageRect.offsetMin = Vector2.zero;
         imageRect.offsetMax = Vector2.zero;
-        introVideoImage = imageGo.AddComponent<RawImage>();
-        introVideoImage.color = Color.white;
-        introVideoImage.raycastTarget = false;
+        introImage = imageGo.AddComponent<Image>();
+        introImage.color = Color.white;
+        introImage.preserveAspect = false;
+        introImage.raycastTarget = false;
 
-        introVideoRt = new RenderTexture(1920, 1080, 0, RenderTextureFormat.ARGB32);
-        introVideoRt.name = "IntroVideoRT";
-        introVideoRt.Create();
-        introVideoImage.texture = introVideoRt;
+        var lineGo = new GameObject("Line");
+        lineGo.transform.SetParent(introRoot.transform, false);
+        var lineRect = lineGo.AddComponent<RectTransform>();
+        // Under character: lower-middle band of the frame.
+        lineRect.anchorMin = new Vector2(0.5f, 0.12f);
+        lineRect.anchorMax = new Vector2(0.5f, 0.12f);
+        lineRect.pivot = new Vector2(0.5f, 0.5f);
+        lineRect.sizeDelta = new Vector2(1200f, 80f);
+        lineRect.anchoredPosition = Vector2.zero;
+        introLine = lineGo.AddComponent<Text>();
+        PixelFonts.Apply(introLine);
+        introLine.fontSize = 36;
+        introLine.alignment = TextAnchor.MiddleCenter;
+        introLine.color = new Color(0.94f, 0.94f, 0.92f);
+        introLine.horizontalOverflow = HorizontalWrapMode.Wrap;
+        introLine.verticalOverflow = VerticalWrapMode.Overflow;
+        introLine.raycastTarget = false;
+        lineGo.SetActive(false);
 
-        introVideoPlayer = introVideoRoot.AddComponent<VideoPlayer>();
-        introVideoPlayer.playOnAwake = false;
-        introVideoPlayer.isLooping = false;
-        introVideoPlayer.renderMode = VideoRenderMode.RenderTexture;
-        introVideoPlayer.targetTexture = introVideoRt;
-        introVideoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
-        introVideoPlayer.source = VideoSource.Url;
+        var spaceGo = new GameObject("SpacePrompt");
+        spaceGo.transform.SetParent(introRoot.transform, false);
+        var spaceRect = spaceGo.AddComponent<RectTransform>();
+        spaceRect.anchorMin = new Vector2(0.5f, 0.12f);
+        spaceRect.anchorMax = new Vector2(0.5f, 0.12f);
+        spaceRect.pivot = new Vector2(0.5f, 0.5f);
+        spaceRect.sizeDelta = new Vector2(400f, 48f);
+        spaceRect.anchoredPosition = new Vector2(0f, -52f);
+        introSpacePrompt = spaceGo.AddComponent<Text>();
+        PixelFonts.Apply(introSpacePrompt);
+        introSpacePrompt.fontSize = 28;
+        introSpacePrompt.alignment = TextAnchor.MiddleCenter;
+        introSpacePrompt.color = new Color(0.85f, 0.85f, 0.82f, 0.95f);
+        introSpacePrompt.text = "space";
+        introSpacePrompt.raycastTarget = false;
+        spaceGo.SetActive(false);
 
-        introVideoRoot.SetActive(false);
+        introRoot.SetActive(false);
     }
 
     // UI для Lev alive-ending: каскад по центру, линии, чёрный фон, space справа снизу.
