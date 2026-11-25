@@ -8,8 +8,8 @@ public static class ComboLetterSprites
 {
     const string ResourceFolder = "Sprites/Combo/";
     /// <summary>
-    /// PPU как у Pig (~100). Финальный world-размер задаёт Monster по высоте тела призрака
-    /// (с компенсацией Circle scale ≈58.4) — не хардкодить localScale «как будто parent = 1».
+    /// PPU как у Pig (~100). Monster размещает ряд в world-space (не child Circle×58.4)
+    /// и задаёт localScale от высоты тела — meta spritePixelsToUnits=16 здесь игнорируем.
     /// </summary>
     const float PixelsPerUnit = 100f;
 
@@ -44,7 +44,7 @@ public static class ComboLetterSprites
     static void LoadLetter(char key)
     {
         string path = ResourceFolder + key;
-        // Сначала Sprite (после импорта Unity), иначе Texture2D → Sprite.Create.
+        // Sprite после импорта; Texture2D — запасной путь (и для GetPixels32 grayscale).
         Sprite imported = Resources.Load<Sprite>(path);
         Texture2D tex = imported != null ? imported.texture : Resources.Load<Texture2D>(path);
         if (tex == null)
@@ -56,9 +56,14 @@ public static class ComboLetterSprites
         tex.filterMode = FilterMode.Point;
         tex.wrapMode = TextureWrapMode.Clamp;
 
-        Rect rect = imported != null
-            ? imported.rect
-            : new Rect(0f, 0f, tex.width, tex.height);
+        // Полный кадр текстуры (Single sprite). imported.rect обычно 0..size, но не доверяем crop.
+        Rect rect = new Rect(0f, 0f, tex.width, tex.height);
+        if (imported != null && imported.rect.width > 0f && imported.rect.height > 0f
+            && imported.texture == tex)
+        {
+            rect = imported.rect;
+        }
+
         // Sprite.Create ждёт нормализованный pivot (0..1).
         Vector2 pivot = new Vector2(0.5f, 0.5f);
 
@@ -67,6 +72,9 @@ public static class ComboLetterSprites
 
         Sprite gray = TryMakeGraySprite(tex, rect, pivot, PixelsPerUnit, key);
         GraySprites[key] = gray != null ? gray : ColorSprites[key];
+
+        if (ColorSprites[key] == null)
+            Debug.LogWarning("ComboLetterSprites: Sprite.Create вернул null для " + path);
     }
 
     /// <summary>Собрать обесцвеченную копию; null если текстура не readable.</summary>
