@@ -45,8 +45,10 @@ public class CutsceneController : MonoBehaviour
     const float PressSpaceDelay = 2f;
     // Длительность горизонтального разъезда половинок
     const float WipeSeconds = 0.9f;
-    // Относительный путь ролика от Assets/
-    const string IntroVideoRelativePath = "Arts/Room/first_scene.mp4";
+    // Resources VideoClip (Transcode→VP8) — надёжно на Linux Editor; URL на Assets/ H.264 там падает.
+    const string IntroVideoResourcesPath = "Videos/first_scene";
+    // Fallback: VP8 WebM в StreamingAssets (не absolute Assets/ URL).
+    const string IntroVideoStreamingName = "first_scene.webm";
     const float IntroVideoPrepareTimeout = 8f;
 
     void Start()
@@ -214,43 +216,62 @@ public class CutsceneController : MonoBehaviour
         }
     }
 
-    // Полноэкранный VideoPlayer поверх сцены; бой стартует только после loopPointReached.
+    // Полноэкранный VideoPlayer; бой после loopPointReached или soft-fail (без soft-lock).
     IEnumerator PlayIntroVideo()
     {
         cutscenePlaying = true;
         HideTitleSplash();
 
-        string path = Path.Combine(Application.dataPath, IntroVideoRelativePath);
-        if (!File.Exists(path))
+        EnsureIntroVideoUi();
+        if (introVideoRoot == null || introVideoPlayer == null)
         {
-            Debug.LogWarning("CutsceneController: intro video missing at " + path + " — skipping to gameplay.");
+            Debug.LogError("CutsceneController: intro VideoPlayer UI missing — skipping to gameplay.");
             yield break;
         }
 
-        EnsureIntroVideoUi();
-        if (introVideoRoot == null || introVideoPlayer == null)
-            yield break;
-
         introVideoRoot.SetActive(true);
-        introVideoPlayer.source = VideoSource.Url;
-        introVideoPlayer.url = path;
         introVideoPlayer.isLooping = false;
         introVideoPlayer.playOnAwake = false;
         introVideoPlayer.skipOnDrop = true;
         introVideoPlayer.audioOutputMode = VideoAudioOutputMode.Direct;
+        introVideoPlayer.clip = null;
+        introVideoPlayer.url = string.Empty;
 
+        if (!TryBindIntroVideoSource())
+        {
+            StopIntroVideo();
+            yield break;
+        }
+
+        bool prepareError = false;
+        string errorMsg = null;
+        void OnError(VideoPlayer _, string message)
+        {
+            prepareError = true;
+            errorMsg = message;
+        }
+
+        introVideoPlayer.errorReceived += OnError;
         introVideoPlayer.Prepare();
         float wait = 0f;
-        while (!introVideoPlayer.isPrepared && wait < IntroVideoPrepareTimeout)
+        while (!introVideoPlayer.isPrepared && !prepareError && wait < IntroVideoPrepareTimeout)
         {
-            if (openingDone) yield break;
+            if (openingDone)
+            {
+                introVideoPlayer.errorReceived -= OnError;
+                yield break;
+            }
             wait += Time.deltaTime;
             yield return null;
         }
 
-        if (!introVideoPlayer.isPrepared)
+        if (prepareError || !introVideoPlayer.isPrepared)
         {
-            Debug.LogWarning("CutsceneController: intro video prepare timed out — skipping to gameplay.");
+            Debug.LogError(
+                "CutsceneController: intro video prepare failed" +
+                (string.IsNullOrEmpty(errorMsg) ? " (timeout/" + IntroVideoPrepareTimeout + "s)" : ": " + errorMsg) +
+                " — skipping to gameplay.");
+            introVideoPlayer.errorReceived -= OnError;
             StopIntroVideo();
             yield break;
         }
@@ -270,11 +291,48 @@ public class CutsceneController : MonoBehaviour
         introVideoPlayer.loopPointReached += OnLoopPoint;
         introVideoPlayer.Play();
 
-        while (!ended && !openingDone)
+        while (!ended && !openingDone && !prepareError)
             yield return null;
 
         introVideoPlayer.loopPointReached -= OnLoopPoint;
+        introVideoPlayer.errorReceived -= OnError;
+
+        if (prepareError)
+        {
+            Debug.LogError(
+                "CutsceneController: intro video playback error" +
+                (string.IsNullOrEmpty(errorMsg) ? "" : ": " + errorMsg) +
+                " — skipping to gameplay.");
+        }
+
         StopIntroVideo();
+    }
+
+    // 1) Resources VideoClip (Transcode VP8)  2) StreamingAssets WebM URL — не Application.dataPath/Assets.
+    bool TryBindIntroVideoSource()
+    {
+        var clip = Resources.Load<VideoClip>(IntroVideoResourcesPath);
+        if (clip != null)
+        {
+            introVideoPlayer.source = VideoSource.VideoClip;
+            introVideoPlayer.clip = clip;
+            Debug.Log("CutsceneController: intro from Resources VideoClip '" + IntroVideoResourcesPath + "'.");
+            return true;
+        }
+
+        string streamingPath = Path.Combine(Application.streamingAssetsPath, IntroVideoStreamingName);
+        if (File.Exists(streamingPath))
+        {
+            introVideoPlayer.source = VideoSource.Url;
+            introVideoPlayer.url = streamingPath;
+            Debug.Log("CutsceneController: intro from StreamingAssets URL '" + streamingPath + "'.");
+            return true;
+        }
+
+        Debug.LogError(
+            "CutsceneController: intro video not found — Resources '" + IntroVideoResourcesPath +
+            "' and StreamingAssets '" + streamingPath + "' — skipping to gameplay.");
+        return false;
     }
 
     void StopIntroVideo()
