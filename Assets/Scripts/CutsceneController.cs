@@ -45,10 +45,10 @@ public class CutsceneController : MonoBehaviour
     const float PressSpaceDelay = 2f;
     // Длительность горизонтального разъезда половинок
     const float WipeSeconds = 0.9f;
-    // Resources VideoClip (Transcode→VP8) — надёжно на Linux Editor; URL на Assets/ H.264 там падает.
-    const string IntroVideoResourcesPath = "Videos/first_scene";
-    // Fallback: VP8 WebM в StreamingAssets (не absolute Assets/ URL).
+    // Linux Editor не играет H.264 URL/MP4 (LinuxVideoMedia format 0) — только VP8 WebM.
     const string IntroVideoStreamingName = "first_scene.webm";
+    // Optional VideoClip fallback (same WebM under Resources/Videos/).
+    const string IntroVideoResourcesPath = "Videos/first_scene";
     const float IntroVideoPrepareTimeout = 8f;
 
     void Start()
@@ -308,9 +308,21 @@ public class CutsceneController : MonoBehaviour
         StopIntroVideo();
     }
 
-    // 1) Resources VideoClip (Transcode VP8)  2) StreamingAssets WebM URL — не Application.dataPath/Assets.
+    // 1) StreamingAssets WebM URL (VP8+Vorbis)  2) Resources VideoClip WebM — никогда Assets/*.mp4 URL.
     bool TryBindIntroVideoSource()
     {
+        string streamingPath = Path.Combine(Application.streamingAssetsPath, IntroVideoStreamingName);
+        if (File.Exists(streamingPath))
+        {
+            string url = streamingPath;
+            if (!url.Contains("://"))
+                url = "file://" + streamingPath;
+            introVideoPlayer.source = VideoSource.Url;
+            introVideoPlayer.url = url;
+            Debug.Log("CutsceneController: intro from StreamingAssets WebM '" + url + "'.");
+            return true;
+        }
+
         var clip = Resources.Load<VideoClip>(IntroVideoResourcesPath);
         if (clip != null)
         {
@@ -320,18 +332,9 @@ public class CutsceneController : MonoBehaviour
             return true;
         }
 
-        string streamingPath = Path.Combine(Application.streamingAssetsPath, IntroVideoStreamingName);
-        if (File.Exists(streamingPath))
-        {
-            introVideoPlayer.source = VideoSource.Url;
-            introVideoPlayer.url = streamingPath;
-            Debug.Log("CutsceneController: intro from StreamingAssets URL '" + streamingPath + "'.");
-            return true;
-        }
-
         Debug.LogError(
-            "CutsceneController: intro video not found — Resources '" + IntroVideoResourcesPath +
-            "' and StreamingAssets '" + streamingPath + "' — skipping to gameplay.");
+            "CutsceneController: intro WebM missing — StreamingAssets '" + streamingPath +
+            "' and Resources '" + IntroVideoResourcesPath + "' — skipping to gameplay.");
         return false;
     }
 
