@@ -9,7 +9,7 @@ public class Monster : MonoBehaviour
 
     /// <summary>
     /// Высота неактивной буквы относительно высоты тела призрака (world bounds).
-    /// Pig ≈5.94×58.4 ≈347 wu → 0.22 ≈ компактная «шапка» (~76 wu), читаемая в ortho 571.
+    /// ghost-sad ≈5.8×58.4 ≈339 wu → 0.22 ≈ компактная «шапка» (~75 wu), читаемая в ortho 571.
     /// Ряд живёт в world-space (не child Circle×58.4) — иначе localScale/материал ломают видимость.
     /// </summary>
     const float ComboLetterHeightFracOfBody = 0.22f;
