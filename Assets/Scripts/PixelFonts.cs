@@ -10,7 +10,8 @@ public static class PixelFonts
     const string ResourcePath = "Fonts/m5x7";
     /// <summary>Кириллица + EN mid/final ending lines (глифы вшиты в m5x7.ttf).</summary>
     const string CyrillicWarmup =
-        "тытамвообщеживойхорошийвопросwas I even alive.. really? and was it worth?. " +
+        "тытамвообщеживойхорошийвопросwas I even alive.. really? and " +
+        "maybe I should've just.. talked? Was it worth it?. " +
         "абвгдеёжзийклмнопрстуфхцчшщъыьэюяАБВГДЕЁЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ";
 
     static Font cached;
