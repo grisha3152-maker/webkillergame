@@ -10,8 +10,8 @@ using UnityEngine.UI;
 /// <summary>
 /// Телефон: пинги из dialogue.json по at (сек после посадки).
 /// ГГ никогда не отвечает текстом — только чтение входящих (ignore-only).
-/// E открывает спрайт телефона; список контактов из history (не пустеет после прочтения).
-/// Счётчик справа — только непрочитанные/пропущенные за текущую сессию открытия.
+/// E открывает спрайт телефона; внутри экрана — список Messages (без аватаров).
+/// Контакты из history (не пустеют после прочтения); справа время или missed.
 /// Игнор по таймеру: −25 к отношениям / закрытие контакта, без исходящей «I'm busy».
 /// forcedHit на открытие E не ставится (ответов нет).
 /// Бормотание под ГГ — при открытии телефона с непрочитанными (последний unread 1–9), ~1с после E.
@@ -29,18 +29,34 @@ public class Dialogue : MonoBehaviour
     /// <summary>Секунд с открытым телефоном на lev_alive до старта каскада.</summary>
     const float AliveEndingHoldSeconds = 5f;
     const string PhoneSpritePath = "Sprites/Phone/phone";
-    /// <summary>Отступы тёмного экрана внутри спрайта (доля; спрайт обрезан по корпусу ~515×824).</summary>
+    /// <summary>Отступы экрана внутри спрайта (доля; спрайт обрезан по корпусу ~515×824).</summary>
     const float ScreenInsetL = 0.110f;
     const float ScreenInsetR = 0.114f;
     const float ScreenInsetT = 0.078f;
     const float ScreenInsetB = 0.078f;
-    /// <summary>Ширина строки имени+счётчика в символах m5x7 (после увеличения кегля уже).</summary>
-    const int InboxLineWidth = 14;
+    /// <summary>Ширина строки имени+времени/missed в символах m5x7 (без аватаров — чуть шире).</summary>
+    const int InboxLineWidth = 16;
     const int VisibleInboxBlocks = 3;
-    /// <summary>Кегль inbox внутри безеля: 16 было нечитаемо (Mom и т.п.); крупнее ради читаемости.</summary>
-    const int InboxFontSize = 26;
-    /// <summary>Подсказка [E] close — чуть меньше тела, но тоже крупнее прежних 14.</summary>
-    const int FooterFontSize = 20;
+    /// <summary>Кегль списка чатов; крупнее 16 — иначе Mom/превью нечитаемы в безеле.</summary>
+    const int InboxFontSize = 22;
+    /// <summary>Заголовок «Messages» в шапке.</summary>
+    const int HeaderFontSize = 22;
+    /// <summary>Подсказка [E] close.</summary>
+    const int FooterFontSize = 18;
+    /// <summary>Высота шапки Messages (px в reference resolution панели).</summary>
+    const float HeaderBarHeight = 36f;
+    /// <summary>Игровые часы: 21:00 + playTime (поздний вечер за столом).</summary>
+    const int ClockBaseHour = 21;
+
+    // Палитра списка Messages (как в messages-ui-ref): muted blue-gray шапка, светлый фон.
+    static readonly Color ScreenBgColor = new Color(0.94f, 0.94f, 0.95f, 1f);
+    static readonly Color HeaderBarColor = new Color(0.38f, 0.44f, 0.50f, 1f);
+    static readonly Color HeaderTitleColor = new Color(0.96f, 0.97f, 0.98f, 1f);
+    static readonly Color NameTextColor = new Color(0.18f, 0.20f, 0.24f, 1f);
+    static readonly Color PreviewTextColor = new Color(0.42f, 0.44f, 0.48f, 1f);
+    static readonly Color MetaTextColor = new Color(0.45f, 0.48f, 0.52f, 1f);
+    static readonly Color DividerColor = new Color(0.78f, 0.80f, 0.82f, 1f);
+    static readonly Color FooterHintColor = new Color(0.50f, 0.54f, 0.58f, 1f);
 
     [SerializeField] TextAsset dialogueJson;
 
@@ -87,10 +103,12 @@ public class Dialogue : MonoBehaviour
 
     RectTransform panel;
     RectTransform screenArea;
+    Text headerTitle;
     Text body;
     Text footer;
     Text tab;
     AudioSource notify;
+    static Sprite uiWhiteSprite;
 
     /// <summary>
     /// Есть неотвеченный пинг — курсор тупеет уже с приходом сообщения (GDD), не только при открытой панели.
@@ -620,7 +638,8 @@ public class Dialogue : MonoBehaviour
         history.Add(new HistoryLine
         {
             contact = ping.contact,
-            text = ping.incoming
+            text = ping.incoming,
+            clockSeconds = playTime
         });
         var entry = MakeUnread(ping.id, ping.contact, ping.incoming, ping.heroMutter);
         // Уже смотрит в телефон — сразу на экран сессии, без бормотания на приход.
@@ -669,7 +688,7 @@ public class Dialogue : MonoBehaviour
         {
             const string farewell =
                 "ok. i get it. i'm not going to be the guy who writes into a mute chat. bye.";
-            history.Add(new HistoryLine { contact = "lev", text = farewell });
+            history.Add(new HistoryLine { contact = "lev", text = farewell, clockSeconds = playTime });
             var entry = MakeUnread("lev_farewell_auto", "lev", farewell, string.Empty);
             if (panelOpen)
             {
@@ -796,8 +815,8 @@ public class Dialogue : MonoBehaviour
     }
 
     /// <summary>
-    /// Контакты из history (имя + последний текст), разделители между блоками.
-    /// Счётчик справа — только unread/missed текущей сессии (openInbox); после прочтения 0.
+    /// Список Messages: имя слева, время или missed справа, превью под именем, разделители.
+    /// Без аватаров. Контакты из history; missed — только openInbox сессии.
     /// </summary>
     string BuildInboxText()
     {
@@ -810,14 +829,17 @@ public class Dialogue : MonoBehaviour
         int end = Mathf.Min(blocks.Count, start + VisibleInboxBlocks);
 
         var builder = new System.Text.StringBuilder();
-        // ASCII: m5x7 без box-drawing глифов.
-        string sep = new string('-', InboxLineWidth);
+        // ASCII-разделитель: m5x7 без box-drawing; цвет через rich text.
+        string sep = ColorTag(DividerColor, new string('-', InboxLineWidth));
+
         for (int i = start; i < end; i++)
         {
             InboxBlock block = blocks[i];
-            builder.Append(FormatNameLine(ContactTitle(block.contact), block.missed));
+            string title = ContactTitle(block.contact);
+            string right = FormatRowMeta(block.missed, block.clockSeconds);
+            builder.Append(FormatColoredNameLine(title, right));
             builder.Append('\n');
-            builder.Append(WrapInboxLine(block.text ?? string.Empty));
+            builder.Append(ColorTag(PreviewTextColor, PreviewLine(block.text ?? string.Empty)));
             if (i < end - 1)
             {
                 builder.Append('\n');
@@ -825,40 +847,23 @@ public class Dialogue : MonoBehaviour
                 builder.Append('\n');
             }
         }
+
         return builder.ToString();
     }
 
-    /// <summary>Жёсткий перенос длинных реплик, чтобы не вылезали за безель.</summary>
-    static string WrapInboxLine(string text)
+    /// <summary>Одна строка превью; длинные реплики обрезаем, чтобы не лезли за безель.</summary>
+    static string PreviewLine(string text)
     {
-        if (string.IsNullOrEmpty(text) || text.Length <= InboxLineWidth)
-            return text;
-
-        var builder = new System.Text.StringBuilder();
-        int i = 0;
-        while (i < text.Length)
-        {
-            int remaining = text.Length - i;
-            int take = Mathf.Min(InboxLineWidth, remaining);
-            if (take < remaining)
-            {
-                // Предпочитаем разрыв по пробелу внутри окна.
-                int split = text.LastIndexOf(' ', i + take - 1, take);
-                if (split >= i) take = split - i + 1;
-            }
-            if (take <= 0) take = 1;
-            builder.Append(text, i, take);
-            i += take;
-            while (i < text.Length && text[i] == ' ') i++;
-            if (i < text.Length) builder.Append('\n');
-        }
-        return builder.ToString();
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+        if (text.Length <= InboxLineWidth) return text;
+        int keep = Mathf.Max(1, InboxLineWidth - 2);
+        return text.Substring(0, keep) + "..";
     }
 
     int CountInboxBlocks() => BuildInboxBlocks().Count;
 
     /// <summary>
-    /// Блоки: все контакты из history (порядок первого появления, текст — последнее сообщение).
+    /// Блоки: все контакты из history (порядок первого появления, текст/время — последнее сообщение).
     /// missed — сколько непрочитанных в openInbox для контакта (0 после mark-read / без новых).
     /// </summary>
     List<InboxBlock> BuildInboxBlocks()
@@ -877,12 +882,14 @@ public class Dialogue : MonoBehaviour
                 {
                     contact = key,
                     text = line.text ?? string.Empty,
+                    clockSeconds = line.clockSeconds,
                     missed = 0
                 };
             }
             else
             {
                 block.text = line.text ?? string.Empty;
+                block.clockSeconds = line.clockSeconds;
                 map[key] = block;
             }
         }
@@ -900,6 +907,7 @@ public class Dialogue : MonoBehaviour
                 {
                     contact = key,
                     text = entry.text ?? string.Empty,
+                    clockSeconds = playTime,
                     missed = 1
                 };
             }
@@ -916,14 +924,44 @@ public class Dialogue : MonoBehaviour
         return result;
     }
 
-    static string FormatNameLine(string title, int missed)
+    /// <summary>Справа: missed если есть непрочитанные, иначе часы последнего сообщения.</summary>
+    static string FormatRowMeta(int missed, float clockSeconds)
     {
-        // Счётчик только для непрочитанных/пропущенных; прочитанные — без цифры справа.
-        if (missed <= 0) return title;
-        string right = missed.ToString();
-        int pad = InboxLineWidth - title.Length - right.Length;
+        if (missed > 0) return missed.ToString();
+        return FormatClock(clockSeconds);
+    }
+
+    static string FormatClock(float secondsFromStart)
+    {
+        int total = Mathf.Max(0, Mathf.FloorToInt(ClockBaseHour * 3600f + secondsFromStart));
+        int h = (total / 3600) % 24;
+        int m = (total / 60) % 60;
+        return h.ToString() + ":" + m.ToString("00");
+    }
+
+    /// <summary>Имя (тёмный) + pad + время/missed (приглушённый), влезает в InboxLineWidth.</summary>
+    static string FormatColoredNameLine(string title, string right)
+    {
+        string left = title ?? string.Empty;
+        string meta = right ?? string.Empty;
+        if (string.IsNullOrEmpty(meta))
+            return ColorTag(NameTextColor, left);
+
+        if (left.Length + 1 + meta.Length > InboxLineWidth)
+        {
+            int keep = Mathf.Max(1, InboxLineWidth - meta.Length - 1);
+            if (left.Length > keep) left = left.Substring(0, keep);
+        }
+        int pad = InboxLineWidth - left.Length - meta.Length;
         if (pad < 1) pad = 1;
-        return title + new string(' ', pad) + right;
+        return ColorTag(NameTextColor, left)
+               + new string(' ', pad)
+               + ColorTag(MetaTextColor, meta);
+    }
+
+    static string ColorTag(Color c, string text)
+    {
+        return "<color=#" + ColorUtility.ToHtmlStringRGB(c) + ">" + text + "</color>";
     }
 
     void InitRelationDefaults()
@@ -1063,16 +1101,46 @@ public class Dialogue : MonoBehaviour
         screenGo.transform.SetParent(panel, false);
         screenArea = screenGo.AddComponent<RectTransform>();
         StretchFraction(screenArea, ScreenInsetL, ScreenInsetT, ScreenInsetR, ScreenInsetB);
-        // Клип: текст не рисуется поверх безеля/комнаты.
+        // Клип: UI не рисуется поверх безеля/комнаты.
         screenGo.AddComponent<RectMask2D>();
 
-        // Текст inbox только в тёмной зоне экрана; кегль крупный — иначе Mom/превью нечитаемы.
+        // Светлый фон списка Messages (корпус phone.png снаружи).
+        var screenBg = screenGo.AddComponent<Image>();
+        screenBg.sprite = UiWhiteSprite();
+        screenBg.type = Image.Type.Simple;
+        screenBg.color = ScreenBgColor;
+        screenBg.raycastTarget = false;
+
+        // Шапка «Messages» — muted blue-gray как в референсе.
+        var headerGo = new GameObject("MessagesHeader");
+        headerGo.transform.SetParent(screenArea, false);
+        var headerRect = headerGo.AddComponent<RectTransform>();
+        headerRect.anchorMin = new Vector2(0f, 1f);
+        headerRect.anchorMax = new Vector2(1f, 1f);
+        headerRect.pivot = new Vector2(0.5f, 1f);
+        headerRect.sizeDelta = new Vector2(0f, HeaderBarHeight);
+        headerRect.anchoredPosition = Vector2.zero;
+        var headerBg = headerGo.AddComponent<Image>();
+        headerBg.sprite = UiWhiteSprite();
+        headerBg.type = Image.Type.Simple;
+        headerBg.color = HeaderBarColor;
+        headerBg.raycastTarget = false;
+
+        headerTitle = MakeText(headerGo.transform, "MessagesTitle", HeaderFontSize, TextAnchor.MiddleLeft);
+        Stretch(headerTitle.rectTransform, 10f, 2f, 10f, 2f);
+        headerTitle.text = "Messages";
+        headerTitle.color = HeaderTitleColor;
+        headerTitle.horizontalOverflow = HorizontalWrapMode.Overflow;
+        headerTitle.verticalOverflow = VerticalWrapMode.Truncate;
+
+        // Список чатов под шапкой: имя | время/missed, превью, разделители. Без аватаров.
         body = MakeText(screenArea, "InboxBody", InboxFontSize, TextAnchor.UpperLeft);
-        Stretch(body.rectTransform, 8f, 8f, 8f, 40f);
-        body.color = new Color(0.86f, 0.88f, 0.94f);
+        Stretch(body.rectTransform, 8f, HeaderBarHeight + 4f, 8f, 34f);
+        body.color = NameTextColor;
+        body.supportRichText = true;
         body.horizontalOverflow = HorizontalWrapMode.Wrap;
         body.verticalOverflow = VerticalWrapMode.Truncate;
-        body.lineSpacing = 1.05f;
+        body.lineSpacing = 1.02f;
         body.resizeTextForBestFit = false;
 
         footer = MakeText(screenArea, "Footer", FooterFontSize, TextAnchor.LowerCenter);
@@ -1080,14 +1148,26 @@ public class Dialogue : MonoBehaviour
         footerRect.anchorMin = new Vector2(0f, 0f);
         footerRect.anchorMax = new Vector2(1f, 0f);
         footerRect.pivot = new Vector2(0.5f, 0f);
-        // Высота футера под FooterFontSize=20, чтобы [E] close не обрезался.
-        footerRect.sizeDelta = new Vector2(-16f, 32f);
-        footerRect.anchoredPosition = new Vector2(0f, 6f);
-        footer.color = new Color(0.55f, 0.58f, 0.7f);
+        footerRect.sizeDelta = new Vector2(-12f, 28f);
+        footerRect.anchoredPosition = new Vector2(0f, 4f);
+        footer.color = FooterHintColor;
         footer.horizontalOverflow = HorizontalWrapMode.Wrap;
         footer.verticalOverflow = VerticalWrapMode.Truncate;
 
         panel.gameObject.SetActive(false);
+    }
+
+    /// <summary>1×1 белый спрайт для Image (фон экрана / шапка).</summary>
+    static Sprite UiWhiteSprite()
+    {
+        if (uiWhiteSprite != null) return uiWhiteSprite;
+        var tex = new Texture2D(1, 1, TextureFormat.RGBA32, false);
+        tex.filterMode = FilterMode.Point;
+        tex.wrapMode = TextureWrapMode.Clamp;
+        tex.SetPixel(0, 0, Color.white);
+        tex.Apply(false, true);
+        uiWhiteSprite = Sprite.Create(tex, new Rect(0f, 0f, 1f, 1f), new Vector2(0.5f, 0.5f), 1f);
+        return uiWhiteSprite;
     }
 
     /// <summary>Спрайт телефона из Resources; Point filter. Fallback — Texture2D → Sprite.Create.</summary>
@@ -1160,6 +1240,8 @@ public class Dialogue : MonoBehaviour
     {
         public string contact;
         public string text;
+        /// <summary>playTime на момент доставки — для часов справа в списке.</summary>
+        public float clockSeconds;
     }
 
     struct UnreadEntry
@@ -1175,6 +1257,7 @@ public class Dialogue : MonoBehaviour
     {
         public string contact;
         public string text;
+        public float clockSeconds;
         public int missed;
     }
 
