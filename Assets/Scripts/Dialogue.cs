@@ -34,17 +34,20 @@ public class Dialogue : MonoBehaviour
     const float ScreenInsetR = 0.114f;
     const float ScreenInsetT = 0.078f;
     const float ScreenInsetB = 0.078f;
-    /// <summary>Ширина строки имени+времени/missed в символах m5x7 (без аватаров — чуть шире).</summary>
-    const int InboxLineWidth = 16;
+    /// <summary>
+    /// Число '-' в разделителе (= целевая ширина строки имени+meta в em-гифенах m5x7).
+    /// При InboxFontSize=36 и боковых inset 4px ≈ заполняет body до правого края экрана.
+    /// </summary>
+    const int InboxLineWidth = 22;
     const int VisibleInboxBlocks = 3;
-    /// <summary>Кегль списка чатов; крупнее 16 — иначе Mom/превью нечитаемы в безеле.</summary>
-    const int InboxFontSize = 22;
+    /// <summary>Кегль списка чатов — крупный m5x7 (было 22, слишком мелко на светлом списке).</summary>
+    const int InboxFontSize = 36;
     /// <summary>Заголовок «Messages» в шапке.</summary>
-    const int HeaderFontSize = 22;
+    const int HeaderFontSize = 30;
     /// <summary>Подсказка [E] close.</summary>
-    const int FooterFontSize = 18;
+    const int FooterFontSize = 22;
     /// <summary>Высота шапки Messages (px в reference resolution панели).</summary>
-    const float HeaderBarHeight = 36f;
+    const float HeaderBarHeight = 44f;
     /// <summary>Игровые часы: 21:00 + playTime (поздний вечер за столом).</summary>
     const int ClockBaseHour = 21;
 
@@ -939,7 +942,11 @@ public class Dialogue : MonoBehaviour
         return h.ToString() + ":" + m.ToString("00");
     }
 
-    /// <summary>Имя (тёмный) + pad + время/missed (приглушённый), влезает в InboxLineWidth.</summary>
+    /// <summary>
+    /// Имя слева + meta (missed/время) у правого края строки.
+    /// Pad по advance m5x7 (пробел уже «-»), а не по числу символов — иначе цифра
+    /// липнет к имени, а разделитель короче экрана.
+    /// </summary>
     static string FormatColoredNameLine(string title, string right)
     {
         string left = title ?? string.Empty;
@@ -947,16 +954,56 @@ public class Dialogue : MonoBehaviour
         if (string.IsNullOrEmpty(meta))
             return ColorTag(NameTextColor, left);
 
-        if (left.Length + 1 + meta.Length > InboxLineWidth)
+        float target = MeasureM5x7Width(new string('-', InboxLineWidth), InboxFontSize);
+        float leftW = MeasureM5x7Width(left, InboxFontSize);
+        float metaW = MeasureM5x7Width(meta, InboxFontSize);
+        float spaceW = Mathf.Max(1f, MeasureM5x7Width(" ", InboxFontSize));
+
+        // Если имя+meta шире цели — укоротить имя (часы «21:05» / длинные имена).
+        if (leftW + spaceW + metaW > target)
         {
-            int keep = Mathf.Max(1, InboxLineWidth - meta.Length - 1);
-            if (left.Length > keep) left = left.Substring(0, keep);
+            while (left.Length > 1
+                   && MeasureM5x7Width(left, InboxFontSize) + spaceW + metaW > target)
+                left = left.Substring(0, left.Length - 1);
+            leftW = MeasureM5x7Width(left, InboxFontSize);
         }
-        int pad = InboxLineWidth - left.Length - meta.Length;
-        if (pad < 1) pad = 1;
+
+        // Добираем пробелы до ширины разделителя (лёгкий overshoot < 1 space ок —
+        // body HorizontalOverflow=Overflow, иначе missed переносится).
+        int pad = 1;
+        while (leftW + (pad + 1) * spaceW + metaW < target)
+            pad++;
+        if (leftW + pad * spaceW + metaW < target)
+            pad++;
+
         return ColorTag(NameTextColor, left)
                + new string(' ', pad)
                + ColorTag(MetaTextColor, meta);
+    }
+
+    /// <summary>Ширина строки в px UI при кегле size (advance m5x7 / fallback em).</summary>
+    static float MeasureM5x7Width(string text, int size)
+    {
+        if (string.IsNullOrEmpty(text) || size <= 0) return 0f;
+        Font font = PixelFonts.M5x7;
+        if (font == null) return text.Length * size * 0.375f;
+
+        font.RequestCharactersInTexture(text, size, FontStyle.Normal);
+        float width = 0f;
+        for (int i = 0; i < text.Length; i++)
+        {
+            char c = text[i];
+            if (font.GetCharacterInfo(c, out CharacterInfo info, size, FontStyle.Normal))
+                width += info.advance;
+            else
+            {
+                // Fallback по метрикам ttf: space 320, hyphen/digit 384, M/m 512 / 1024em.
+                if (c == ' ') width += size * (320f / 1024f);
+                else if (c == 'M' || c == 'm' || c == 'W' || c == 'w') width += size * 0.5f;
+                else width += size * (384f / 1024f);
+            }
+        }
+        return width;
     }
 
     static string ColorTag(Color c, string text)
@@ -1134,11 +1181,13 @@ public class Dialogue : MonoBehaviour
         headerTitle.verticalOverflow = VerticalWrapMode.Truncate;
 
         // Список чатов под шапкой: имя | время/missed, превью, разделители. Без аватаров.
+        // Боковые 4px — строка/разделитель доходят до правого края контента экрана.
         body = MakeText(screenArea, "InboxBody", InboxFontSize, TextAnchor.UpperLeft);
-        Stretch(body.rectTransform, 8f, HeaderBarHeight + 4f, 8f, 34f);
+        Stretch(body.rectTransform, 4f, HeaderBarHeight + 4f, 4f, 36f);
         body.color = NameTextColor;
         body.supportRichText = true;
-        body.horizontalOverflow = HorizontalWrapMode.Wrap;
+        // Overflow: pad до ширины '-' не должен переносить missed на следующую строку.
+        body.horizontalOverflow = HorizontalWrapMode.Overflow;
         body.verticalOverflow = VerticalWrapMode.Truncate;
         body.lineSpacing = 1.02f;
         body.resizeTextForBestFit = false;
@@ -1148,7 +1197,7 @@ public class Dialogue : MonoBehaviour
         footerRect.anchorMin = new Vector2(0f, 0f);
         footerRect.anchorMax = new Vector2(1f, 0f);
         footerRect.pivot = new Vector2(0.5f, 0f);
-        footerRect.sizeDelta = new Vector2(-12f, 28f);
+        footerRect.sizeDelta = new Vector2(-12f, 32f);
         footerRect.anchoredPosition = new Vector2(0f, 4f);
         footer.color = FooterHintColor;
         footer.horizontalOverflow = HorizontalWrapMode.Wrap;
