@@ -7,11 +7,14 @@ public static class PrototypeBootstrap
     {
         Balance.EnsureLoaded();
 
-        if (GameObject.FindGameObjectWithTag("Player") == null)
+        var player = GameObject.FindGameObjectWithTag("Player");
+        if (player == null)
         {
             Debug.LogWarning("PrototypeBootstrap: нет объекта с тегом Player — системы не созданы.");
             return;
         }
+
+        EnsureTypingVideoHero(player);
 
         // Если GameManager уже в сцене, всё равно гарантируем Dialogue (телефон).
         var existing = Object.FindAnyObjectByType<GameManager>();
@@ -35,6 +38,14 @@ public static class PrototypeBootstrap
         root.AddComponent<RadialAimController>();
         EnsureCameraTension();
         Debug.Log("PrototypeBootstrap: создан корень talk with other + Dialogue.");
+    }
+
+    /// <summary>Keyed writing.mp4 typing loop on Player (soft-fails if clip missing).</summary>
+    static void EnsureTypingVideoHero(GameObject player)
+    {
+        if (player == null) return;
+        if (player.GetComponent<TypingVideoHero>() != null) return;
+        player.AddComponent<TypingVideoHero>();
     }
 
     static void EnsureDialogue(GameObject host)

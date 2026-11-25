@@ -350,6 +350,11 @@ public class CutsceneController : MonoBehaviour
         wakeHeroRenderer = player.GetComponent<SpriteRenderer>();
         if (wakeHeroRenderer == null) return false;
 
+        // If chromakey typing video already runs, park it and use SpriteRenderer stills.
+        var typing = player.GetComponent<TypingVideoHero>();
+        if (typing != null)
+            typing.SuspendForStillPose();
+
         wakeHeroSavedSprite = wakeHeroRenderer.sprite;
         wakeHeroAnimator = player.GetComponent<Animator>();
         wakeHeroSavedAnimatorEnabled = wakeHeroAnimator != null && wakeHeroAnimator.enabled;
@@ -373,6 +378,12 @@ public class CutsceneController : MonoBehaviour
             wakeHeroRenderer.sprite = wakeHeroSavedSprite;
         if (wakeHeroAnimator != null)
             wakeHeroAnimator.enabled = wakeHeroSavedAnimatorEnabled;
+
+        var player = wakeHeroRenderer != null ? wakeHeroRenderer.gameObject : GameObject.FindGameObjectWithTag("Player");
+        var typing = player != null ? player.GetComponent<TypingVideoHero>() : null;
+        if (typing != null)
+            typing.ResumeTyping();
+
         wakePoseBound = false;
         wakeHeroRenderer = null;
         wakeHeroSavedSprite = null;
@@ -616,6 +627,9 @@ public class CutsceneController : MonoBehaviour
         var anim = player.GetComponent<Animator>();
         if (anim != null)
             anim.enabled = false;
+        var typing = player.GetComponent<TypingVideoHero>();
+        if (typing != null)
+            typing.StopTyping();
     }
 
     static IEnumerator LeanPlayerBack(GameObject player, float seconds)
