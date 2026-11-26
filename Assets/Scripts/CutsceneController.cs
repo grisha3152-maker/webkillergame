@@ -394,13 +394,21 @@ public class CutsceneController : MonoBehaviour
         if (!wakePoseBound) return;
         if (wakeHeroRenderer != null && wakeHeroSavedSprite != null)
             wakeHeroRenderer.sprite = wakeHeroSavedSprite;
-        if (wakeHeroAnimator != null)
-            wakeHeroAnimator.enabled = wakeHeroSavedAnimatorEnabled;
 
         var player = wakeHeroRenderer != null ? wakeHeroRenderer.gameObject : GameObject.FindGameObjectWithTag("Player");
         var typing = player != null ? player.GetComponent<TypingVideoHero>() : null;
+
+        // TypingVideoHero owns gameplay typing — do not re-enable carve Animator sheet.
         if (typing != null)
+        {
+            if (wakeHeroAnimator != null)
+                wakeHeroAnimator.enabled = false;
             typing.ResumeTyping();
+        }
+        else if (wakeHeroAnimator != null)
+        {
+            wakeHeroAnimator.enabled = wakeHeroSavedAnimatorEnabled;
+        }
 
         wakePoseBound = false;
         wakeHeroRenderer = null;
