@@ -9,17 +9,17 @@ public class Monster : MonoBehaviour
 
     /// <summary>
     /// Высота неактивной буквы относительно высоты тела призрака (world bounds).
-    /// ghost-sad ≈5.8×58.4 ≈339 wu → 0.22 ≈ компактная «шапка» (~75 wu), читаемая в ortho 571.
+    /// ghost-sad ≈5.8×58.4 ≈339 wu → 0.24 ≈ читаемая «шапка» (~81 wu) в ortho 571.
     /// Ряд живёт в world-space (не child Circle×58.4) — иначе localScale/материал ломают видимость.
+    /// ComboLetterSprites обрезает поля PNG, поэтому frac = высота глифа, не кадра 1280×698.
     /// </summary>
-    const float ComboLetterHeightFracOfBody = 0.22f;
+    const float ComboLetterHeightFracOfBody = 0.24f;
     /// <summary>Текущая клавиша чуть крупнее остальных (насыщенная vs grayscale).</summary>
-    const float ComboActiveScaleMul = 1.28f;
+    const float ComboActiveScaleMul = 1.32f;
     /// <summary>
-    /// Доля bounds.width с непрозрачным глифом (Combo PNG ~1280×698, глиф ~450px ≈ 0.35).
-    /// Шаг ряда — по визуальной ширине, не по полному rect со полями (иначе Z X C разлетаются).
+    /// Доля bounds.width с непрозрачным глифом. После crop в ComboLetterSprites ≈1.
     /// </summary>
-    const float ComboLetterOpaqueWidthFrac = 0.36f;
+    const float ComboLetterOpaqueWidthFrac = 0.98f;
     /// <summary>Зазор между визуальными краями соседних букв как доля высоты буквы.</summary>
     const float ComboLetterEdgeGapFracOfHeight = 0.08f;
     /// <summary>Зазор макушка/низ ↔ край букв как доля высоты тела.</summary>
@@ -287,7 +287,7 @@ public class Monster : MonoBehaviour
         }
 
         if (baseScale < 0.01f)
-            baseScale = targetInactiveH / (698f / 100f);
+            baseScale = targetInactiveH / (520f / 100f);
 
         // Шаг по визуальной ширине глифа × active-mul + edge gap (не полный PNG bounds — поля ~65%).
         float slotWidth = 0f;
@@ -301,7 +301,7 @@ public class Monster : MonoBehaviour
         }
 
         if (slotWidth < 0.05f)
-            slotWidth = (1280f / 100f) * ComboLetterOpaqueWidthFrac
+            slotWidth = (450f / 100f) * ComboLetterOpaqueWidthFrac
                 * baseScale * ComboActiveScaleMul;
 
         float spacing = slotWidth + targetInactiveH * ComboLetterEdgeGapFracOfHeight;
@@ -356,18 +356,31 @@ public class Monster : MonoBehaviour
         }
     }
 
-    /// <summary>URP 2D Sprite-Unlit (или Sprites/Default) — цвет букв без зависимости от Global Light.</summary>
+    /// <summary>
+    /// URP 2D Sprite-Unlit — цвет букв без Global Light.
+    /// Resources mat надёжнее Shader.Find (stripping / Sprites/Default в URP 2D → невидимые буквы).
+    /// </summary>
     static Material ComboUnlitMaterial()
     {
         if (s_comboUnlitMaterial != null) return s_comboUnlitMaterial;
 
+        Material fromResources = Resources.Load<Material>("Materials/ComboLetterUnlit");
+        if (fromResources != null)
+        {
+            s_comboUnlitMaterial = fromResources;
+            return s_comboUnlitMaterial;
+        }
+
         Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
         if (shader == null)
-            shader = Shader.Find("Sprites/Default");
+            shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit");
         if (shader == null)
+        {
+            Debug.LogWarning("Monster: нет URP Sprite-Unlit — буквы комбо могут быть невидимы.");
             return null;
+        }
 
-        s_comboUnlitMaterial = new Material(shader) { name = "ComboLetterUnlit" };
+        s_comboUnlitMaterial = new Material(shader) { name = "ComboLetterUnlitRuntime" };
         return s_comboUnlitMaterial;
     }
 
